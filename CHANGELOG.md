@@ -2,7 +2,7 @@
 
 这里记录每个版本用户能感知到的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [0.4.2] - 2026-11-19
 
 ### 新增
 
@@ -72,7 +72,8 @@
 - 投屏只能用系统的屏幕镜像
 - HarmonyOS NEXT（纯血鸿蒙）不能直接安装 APK
 
-[未发布]: https://github.com/kadaliao/kaixinguo-android/compare/v0.4.1...HEAD
+[0.4.2]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.1...v0.4.2
+[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.2...HEAD
 [0.4.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.0...v0.3.1
