@@ -1,4 +1,4 @@
-name: Android CI
+name: Android CI and Release
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -41,10 +41,62 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest assembleRelease
 
-      - name: Upload APKs
+      - name: Read application version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          cd app/build/outputs/apk/release
+          sha256sum *.apk > "kaixinguo-android-${{ steps.version.outputs.version }}-SHA256SUMS.txt"
+
+      - name: Upload APKs as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kaixinguo-android-0.4.2-${{ github.run_number }}
-          path: app/build/outputs/apk/release/*.apk
+          name: kaixinguo-android-${{ steps.version.outputs.version }}-${{ github.run_number }}
+          path: app/build/outputs/apk/release/*
           if-no-files-found: error
           retention-days: 14
+
+      - name: Check whether this version is already released
+        id: release_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release
+        if: steps.release_check.outputs.exists == 'false' && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: 开心果 Android v${{ steps.version.outputs.version }}
+          body: |
+            ## 更新内容
+            - 更新至上游正式版 openhongguo SDK `0.4.0`，包含 V5 播放取址修复
+            - 包含开心果 Android 最新主分支的播放手势与界面改进
+            - 通过单元测试并成功构建 Release APK
+
+            ## 下载
+            - **`arm64-v8a.apk`**：推荐近年安卓手机
+            - **`universal.apk`**：不确定设备架构时使用
+            - `armeabi-v7a.apk`：旧款 32 位 ARM 设备
+            - `x86_64.apk`：安卓模拟器
+
+            SHA-256 校验值见 `SHA256SUMS.txt`。
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/*SHA256SUMS.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: false
