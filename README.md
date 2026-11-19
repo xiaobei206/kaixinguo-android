@@ -32,7 +32,7 @@
 
 ## 安装
 
-开心果 Android 不在应用商店上架。到 [Releases](https://github.com/kadaliao/kaixinguo-android/releases/latest) 下载 APK，传到手机上点开安装，或者直接用手机浏览器打开这个页面下载：
+开心果 Android 不在应用商店上架。到 [Releases](https://github.com/xiaobei206/kaixinguo-android/releases/latest) 下载 APK，传到手机上点开安装，或者直接用手机浏览器打开这个页面下载：
 
 | 下载哪个 | 适合 |
 | --- | --- |
@@ -61,7 +61,7 @@
 需要 JDK 17 或更新的版本，以及 Android SDK（装过 Android Studio 就有，默认在 `~/Library/Android/sdk`）：
 
 ```sh
-git clone https://github.com/kadaliao/kaixinguo-android.git
+git clone https://github.com/xiaobei206/kaixinguo-android.git
 cd kaixinguo-android
 echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 ./gradlew assembleRelease
