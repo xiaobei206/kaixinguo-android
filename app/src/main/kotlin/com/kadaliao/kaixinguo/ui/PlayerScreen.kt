@@ -197,6 +197,11 @@ fun PlayerScreen(inPip: Boolean) {
     val rotation = rememberRotation()
     // The little window shows the video as it is, and the dimming doesn't come back with the screen.
     LaunchedEffect(inPip) { if (inPip) hud.brightness = 1f }
+    // A new episode starts with the controls available; playback will hide them after a short idle period.
+    LaunchedEffect(player.number) {
+        hud.controlsVisible = true
+        hud.controlsPinned = false
+    }
 
     // Pauses the episode for a search, to go on with it after.
     fun openSearch() {
@@ -362,6 +367,12 @@ private class Rotation(private val activity: Activity) {
  * on what the last one did.
  */
 private class PlayerHud {
+    /** Whether the top controls and bottom seek bar are on screen. */
+    var controlsVisible by mutableStateOf(true)
+
+    /** Temporarily prevents auto-hide while a gesture, menu, or seek drag is active. */
+    var controlsPinned by mutableStateOf(false)
+
     var holding by mutableStateOf(false)
 
     /** Whether the held finger has swiped far enough that letting go flips the lock. */
@@ -398,6 +409,16 @@ private val shadowed = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.4f),
  */
 @Composable
 private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: Rotation?, landscape: Boolean, search: () -> Unit, modifier: Modifier) {
+    val player = LocalModel.current.player
+    LaunchedEffect(hud.controlsVisible, hud.controlsPinned, hud.holding, player.paused, player.state, chrome) {
+        if (!chrome || !hud.controlsVisible || hud.controlsPinned || hud.holding || player.paused || player.state != PlayerState.Playing) {
+            return@LaunchedEffect
+        }
+        delay(3_000)
+        if (chrome && hud.controlsVisible && !hud.controlsPinned && !hud.holding && !player.paused && player.state == PlayerState.Playing) {
+            hud.controlsVisible = false
+        }
+    }
     Box(modifier.clipToBounds()) {
         VideoSurface(Modifier.fillMaxSize().offset { IntOffset(0, hud.offset.roundToInt()) })
         if (!chrome) return@Box
@@ -417,17 +438,30 @@ private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: 
         PauseMark(Modifier.align(Alignment.Center))
         PlayerOverlay()
         Column(Modifier.fillMaxSize()) {
-            TopBar(rotation, landscape, search)
+            AnimatedVisibility(
+                visible = hud.controlsVisible,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(220)),
+            ) {
+                TopBar(hud, rotation, landscape, search)
+            }
             SpeedHint(hud)
             Spacer(Modifier.weight(1f))
             // With nothing under the video, the bar keeps clear of the system's.
-            ProgressBar(
-                if (edge) {
-                    Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-                } else {
-                    Modifier
-                },
-            )
+            AnimatedVisibility(
+                visible = hud.controlsVisible,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(220)),
+            ) {
+                ProgressBar(
+                    hud = hud,
+                    modifier = if (edge) {
+                        Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+                    } else {
+                        Modifier
+                    },
+                )
+            }
         }
     }
 }
@@ -473,6 +507,8 @@ private fun Gestures(hud: PlayerHud, modifier: Modifier) {
         modifier.pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
+                hud.controlsPinned = true
+                try {
                 val slop = viewConfiguration.touchSlop
                 val touch = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                     var t: Touch? = null
@@ -488,11 +524,17 @@ private fun Gestures(hud: PlayerHud, modifier: Modifier) {
                 }
                 when {
                     touch == null -> hold(down, player, hud, haptic)
-                    touch == Touch.Up -> player.togglePause()
+                    touch == Touch.Up -> {
+                        // When controls are hidden, the first tap only brings them back.
+                        if (!hud.controlsVisible) hud.controlsVisible = true else player.togglePause()
+                    }
                     touch is Touch.Moved && abs(touch.by.y) > abs(touch.by.x) -> swipe(down, player, hud, scope)
                     down.position.x < size.width / 2 -> brighten(down, hud)
                     audio != null -> louden(down, hud, audio)
                     else -> untilUp(down)
+                }
+                } finally {
+                    hud.controlsPinned = false
                 }
             }
         },
@@ -719,7 +761,7 @@ private fun PlayerOverlay() {
 
 /** TopBar is what plays, and how fast, over the top of the video, with the way out, to turn the screen, to search and to more. */
 @Composable
-private fun TopBar(rotation: Rotation?, landscape: Boolean, search: () -> Unit) {
+private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, search: () -> Unit) {
     val player = LocalModel.current.player
     Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent)))) {
         Row(
@@ -737,10 +779,10 @@ private fun TopBar(rotation: Rotation?, landscape: Boolean, search: () -> Unit) 
                     Text(it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall.merge(shadowed), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            SpeedMenu()
+            SpeedMenu(hud)
             if (rotation != null) RotateButton(rotation, landscape)
             IconButton(onClick = search) { Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Color.White) }
-            MoreMenu()
+            MoreMenu(hud)
         }
     }
 }
@@ -768,20 +810,24 @@ private fun restoring(rate: Float): String = if (rate == 1f) "恢复正常速度
 
 /** SpeedMenu shows the speed the video plays at, and changes it. */
 @Composable
-private fun SpeedMenu() {
+private fun SpeedMenu(hud: PlayerHud) {
     val player = LocalModel.current.player
     var open by remember { mutableStateOf(false) }
+    fun close() {
+        open = false
+        hud.controlsPinned = false
+    }
     Box {
         Row(
-            Modifier.clip(CircleShape).clickable { open = true }.height(44.dp).padding(horizontal = 8.dp),
+            Modifier.clip(CircleShape).clickable { open = true; hud.controlsPinned = true }.height(44.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Filled.Speed, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(4.dp))
             Text(if (player.speed == 1f) "倍速" else "${rateText(player.speed)}x", color = Color.White, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            SpeedItems(player) { open = false }
+        DropdownMenu(expanded = open, onDismissRequest = { close() }) {
+            SpeedItems(player) { close() }
         }
     }
 }
@@ -813,18 +859,23 @@ private enum class More { MAIN, SPEED, QUALITY, SLEEP }
  * page.
  */
 @Composable
-private fun MoreMenu() {
+private fun MoreMenu(hud: PlayerHud) {
     val model = LocalModel.current
     val router = LocalRouter.current
     val player = model.player
     var open by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(More.MAIN) }
+    fun close() {
+        open = false
+        hud.controlsPinned = false
+    }
     Box {
         IconButton(onClick = {
             page = More.MAIN
             open = true
+            hud.controlsPinned = true
         }) { Icon(Icons.Filled.MoreHoriz, contentDescription = "更多", tint = Color.White) }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenu(expanded = open, onDismissRequest = { close() }) {
             when (page) {
                 More.MAIN -> {
                     Entry("倍速", Icons.Filled.Speed, if (player.speed == 1f) "正常" else "${rateText(player.speed)}x") { page = More.SPEED }
@@ -848,14 +899,14 @@ private fun MoreMenu() {
                             leadingIcon = { Icon(if (saved) Icons.Outlined.StarOutline else Icons.Filled.Star, contentDescription = null) },
                             onClick = {
                                 model.favorites.toggle(Fav.of(Card.of(series)))
-                                open = false
+                                close()
                             },
                         )
                         DropdownMenuItem(
                             text = { Text("剧集详情") },
                             leadingIcon = { Icon(Icons.Outlined.Info, contentDescription = null) },
                             onClick = {
-                                open = false
+                                close()
                                 player.leave()
                                 if (router.top != Route.Series(sp.id)) router.open(Route.Series(sp.id))
                             },
@@ -864,14 +915,14 @@ private fun MoreMenu() {
                 }
                 More.SPEED -> {
                     Heading("倍速") { page = More.MAIN }
-                    SpeedItems(player) { open = false }
+                    SpeedItems(player) { close() }
                 }
                 More.QUALITY -> {
                     Heading("清晰度") { page = More.MAIN }
                     for (q in player.qualities) {
                         Choice("${q}P", q == player.quality) {
                             player.chooseQuality(q)
-                            open = false
+                            close()
                         }
                     }
                 }
@@ -882,7 +933,7 @@ private fun MoreMenu() {
                     for ((s, label) in choices) {
                         Choice(label, player.sleep == s) {
                             player.chooseSleep(s)
-                            open = false
+                            close()
                         }
                     }
                 }
@@ -931,7 +982,7 @@ private fun clock(s: Double): String {
 
 /** ProgressBar is how far the episode has got, along the bottom of the video; dragging along it moves there. */
 @Composable
-private fun ProgressBar(modifier: Modifier) {
+private fun ProgressBar(hud: PlayerHud, modifier: Modifier) {
     val video = LocalModel.current.player.video
     var dragged by remember { mutableStateOf<Float?>(null) } // where a drag is, as a fraction
     var at by remember { mutableDoubleStateOf(0.0) }
@@ -964,19 +1015,24 @@ private fun ProgressBar(modifier: Modifier) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     down.consume()
-                    dragged = (down.position.x / size.width).coerceIn(0f, 1f)
-                    while (true) {
-                        val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                        if (!c.pressed) break
-                        c.consume()
-                        dragged = (c.position.x / size.width).coerceIn(0f, 1f)
-                    }
-                    val f = dragged ?: return@awaitEachGesture
-                    video.seek(f * total)
-                    // Keeps the bar there until the video has moved.
-                    scope.launch {
-                        delay(400)
-                        dragged = null
+                    hud.controlsPinned = true
+                    try {
+                        dragged = (down.position.x / size.width).coerceIn(0f, 1f)
+                        while (true) {
+                            val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                            if (!c.pressed) break
+                            c.consume()
+                            dragged = (c.position.x / size.width).coerceIn(0f, 1f)
+                        }
+                        val f = dragged ?: return@awaitEachGesture
+                        video.seek(f * total)
+                        // Keeps the bar there until the video has moved.
+                        scope.launch {
+                            delay(400)
+                            dragged = null
+                        }
+                    } finally {
+                        hud.controlsPinned = false
                     }
                 }
             },

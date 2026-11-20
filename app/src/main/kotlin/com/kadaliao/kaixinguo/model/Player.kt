@@ -109,7 +109,7 @@ class Player internal constructor(
 ) {
     companion object {
         /** The speeds the speed menu offers. */
-        val speeds = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
+        val speeds = listOf(0.75f, 1f, 1.25f, 1.5f, 2f, 3f)
 
         /** The speed a press and hold on the video plays at. */
         const val DOUBLE_RATE = 2f

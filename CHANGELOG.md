@@ -2,6 +2,18 @@
 
 这里记录每个版本用户能感知到的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.3] - 2026-11-20
+
+### 新增
+
+- 倍速菜单新增 3×，顶部倍速按钮和「⋯」菜单共用同一组选项
+- 播放时顶部控制栏和底部进度条在约 3 秒无操作后自动淡出；隐藏时首次点击只唤出控制栏，不会暂停视频
+
+### 变更
+
+- 暂停时保持控制栏显示；继续播放后重新开始自动隐藏计时
+- 调整控制栏淡入淡出，并在菜单、手势和进度条拖动期间暂缓自动隐藏
+
 ## [0.4.2] - 2026-11-19
 
 ### 新增
@@ -73,7 +85,8 @@
 - HarmonyOS NEXT（纯血鸿蒙）不能直接安装 APK
 
 [0.4.2]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.1...v0.4.2
-[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.2...HEAD
+[0.4.3]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.2...v0.4.3
+[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.3...HEAD
 [0.4.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.0...v0.3.1
