@@ -161,7 +161,7 @@ class Player internal constructor(
         private set
     var sourceHeight by mutableIntStateOf(0)
         private set
-    var sourceBitrate by mutableLongStateOf(0L)
+    var sourceBitrate by mutableStateOf(0L)
         private set
     private var decoderFallbackTried = false
 

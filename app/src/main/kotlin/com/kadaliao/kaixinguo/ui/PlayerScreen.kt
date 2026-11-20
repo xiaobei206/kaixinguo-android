@@ -1100,14 +1100,17 @@ private fun PlaybackStatsOverlay(player: Player, modifier: Modifier) {
     val height = snapshot.height.takeIf { it > 0 } ?: player.sourceHeight
     val currentRes = if (width > 0 && height > 0) "$width×$height" else "${player.quality}P"
     val optimal = player.qualities.maxOrNull()?.let { "${it}P" } ?: "—"
-    val fps = if (snapshot.frameRate > 0f) "  ${String.format(Locale.US, "%.0f", snapshot.frameRate)}fps" else ""
-    val codecs = snapshot.videoCodec.ifBlank { player.selectedCodec.ifBlank { "—" } } +
-        if (snapshot.audioCodec.isBlank()) "" else " · ${snapshot.audioCodec}"
-    val decoder = when (snapshot.decoderHardware) {
+    val fpsNumber = if (snapshot.frameRate > 0f) String.format(Locale.US, "%.0f", snapshot.frameRate) else ""
+    val fps = if (fpsNumber.isNotEmpty()) "  ${fpsNumber}fps" else ""
+    val videoCodec = snapshot.videoCodec.ifBlank { player.selectedCodec.ifBlank { "—" } }
+    val audioCodec = snapshot.audioCodec
+    val codecs = if (audioCodec.isNotBlank()) "$videoCodec · $audioCodec" else videoCodec
+    val decoderKind = when (snapshot.decoderHardware) {
         true -> "硬件解码"
         false -> "软件解码"
         null -> "等待解码器"
-    } + snapshot.decoderName.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+    }
+    val decoder = snapshot.decoderName.takeIf { it.isNotBlank() }?.let { "$decoderKind · $it" } ?: decoderKind
     val speed = if (snapshot.connectionSpeedBps > 0) String.format(Locale.US, "%.1f Mbps", snapshot.connectionSpeedBps / 1_000_000.0) else "—"
     val netKb = snapshot.networkBytesLast20Seconds / 1024.0
     val net = if (netKb >= 1024.0) String.format(Locale.US, "%.1f MB/20s", netKb / 1024.0) else String.format(Locale.US, "%.0f KB/20s", netKb)
