@@ -1098,11 +1098,11 @@ private fun PlaybackStatsOverlay(player: Player, modifier: Modifier) {
     }
     val width = snapshot.width.takeIf { it > 0 } ?: player.sourceWidth
     val height = snapshot.height.takeIf { it > 0 } ?: player.sourceHeight
-    val currentRes = if (width > 0 && height > 0) "$width×$height" else "\${player.quality}P"
-    val optimal = player.qualities.maxOrNull()?.let { "\${it}P" } ?: "—"
-    val fps = if (snapshot.frameRate > 0f) "  \${String.format(Locale.US, "%.0f", snapshot.frameRate)}fps" else ""
+    val currentRes = if (width > 0 && height > 0) "$width×$height" else "${player.quality}P"
+    val optimal = player.qualities.maxOrNull()?.let { "${it}P" } ?: "—"
+    val fps = if (snapshot.frameRate > 0f) "  ${String.format(Locale.US, "%.0f", snapshot.frameRate)}fps" else ""
     val codecs = snapshot.videoCodec.ifBlank { player.selectedCodec.ifBlank { "—" } } +
-        if (snapshot.audioCodec.isBlank()) "" else " · \${snapshot.audioCodec}"
+        if (snapshot.audioCodec.isBlank()) "" else " · ${snapshot.audioCodec}"
     val decoder = when (snapshot.decoderHardware) {
         true -> "硬件解码"
         false -> "软件解码"
