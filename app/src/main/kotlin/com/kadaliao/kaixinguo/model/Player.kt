@@ -30,7 +30,7 @@ interface VideoListener {
     fun ended()
 
     /** The episode can't go on; `message` says why, in the viewer's words. */
-    fun failed(message: String)
+    fun failed(message: String, decoderFailure: Boolean = false)
 
     /** The episode's picture, as width over height, once the video knows it. */
     fun aspectChanged(aspect: Float)
@@ -154,6 +154,17 @@ class Player internal constructor(
     var quality by mutableIntStateOf(0)
         private set
 
+    /** Codec and dimensions of the selected source, for diagnostics. */
+    var selectedCodec by mutableStateOf("")
+        private set
+    var sourceWidth by mutableIntStateOf(0)
+        private set
+    var sourceHeight by mutableIntStateOf(0)
+        private set
+    var sourceBitrate by mutableLongStateOf(0L)
+        private set
+    private var decoderFallbackTried = false
+
     /** The definition the viewer picked, which later episodes keep to as near as they can; null for the best. */
     var preferredQuality by mutableStateOf<Int?>(null)
         private set
@@ -202,7 +213,7 @@ class Player internal constructor(
         video.listener = object : VideoListener {
             override fun statusChanged() = timeControlChanged()
             override fun ended() = this@Player.ended()
-            override fun failed(message: String) = itemFailed(message)
+            override fun failed(message: String, decoderFailure: Boolean) = itemFailed(message, decoderFailure)
             override fun aspectChanged(aspect: Float) {
                 if (episodeID.isNotEmpty()) wide = aspect > 1f
             }
@@ -220,6 +231,7 @@ class Player internal constructor(
      */
     fun play(seriesID: String, n: Int, start: Double = 0.0, paused: Boolean = false) {
         gen++
+        if (seriesID != this.seriesID || n != number) decoderFallbackTried = false
         if (seriesID != this.seriesID) wide = false // another series may be shot the other way
         this.seriesID = seriesID
         number = n
@@ -281,6 +293,7 @@ class Player internal constructor(
                 state = PlayerState.Buffering
                 episodeID = ep.id
                 video.load(item, start)
+                video.speed = speed
                 when {
                     paused -> {}
                     away -> playOnReturn = true // the viewer left while it was on its way
@@ -332,6 +345,10 @@ class Player internal constructor(
         debugLog { "play: ${ep.id} ${s.definition} ${s.codec} encrypted=${key != null}" }
         qualities = playable(pb.streams).map(::lines).toSortedSet().sortedDescending()
         quality = lines(s)
+        selectedCodec = s.codec
+        sourceWidth = s.width
+        sourceHeight = s.height
+        sourceBitrate = s.bitrate.toLong()
         if (s.width > 0 && s.height > 0) wide = s.width > s.height
         val series = sp.series
         val cover = series?.coverUrl.orEmpty()
@@ -392,6 +409,7 @@ class Player internal constructor(
 
     /** Plays the episode on in the definition nearest q, and the episodes after in it too. */
     fun chooseQuality(q: Int) {
+        decoderFallbackTried = false
         preferredQuality = q
         val id = seriesID ?: return
         if (q == quality || !(state == PlayerState.Playing || state == PlayerState.Buffering)) return
@@ -592,9 +610,23 @@ class Player internal constructor(
         }
     }
 
-    private fun itemFailed(message: String) {
+    private fun itemFailed(message: String, decoderFailure: Boolean = false) {
         if (episodeID.isEmpty()) return
         debugLog { "player: $message" }
+        if (decoderFailure && !decoderFallbackTried) {
+            val lower = qualities.filter { it < quality }.maxOrNull()
+            val id = seriesID
+            if (lower != null && id != null) {
+                decoderFallbackTried = true
+                val current = video.position
+                val saved = app.history.get(id)?.takeIf { it.episode == number && !it.finished }?.position ?: start
+                val resumeAt = if (current.isFinite() && current >= 0.0) current else saved
+                preferredQuality = lower
+                debugLog { "decoder failed at ${quality}p; retrying at ${lower}p from ${resumeAt}s" }
+                play(id, number, resumeAt.coerceAtLeast(0.0))
+                return
+            }
+        }
         state = PlayerState.Failed(message)
         futures.remove(episodeID)
     }

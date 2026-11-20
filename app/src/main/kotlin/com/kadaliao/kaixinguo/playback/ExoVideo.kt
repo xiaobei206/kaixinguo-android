@@ -1,8 +1,11 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.kadaliao.kaixinguo.playback
 
 import android.content.Context
 import android.net.Uri
 import androidx.media3.common.AudioAttributes
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -48,6 +51,23 @@ class ExoVideo(context: Context, registry: StreamRegistry, http: DataSource.Fact
         private set
 
     init {
+        exo.addAnalyticsListener(object : AnalyticsListener {
+            override fun onBandwidthEstimate(eventTime: AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) {
+                PlaybackDiagnostics.onBandwidthEstimate(bitrateEstimate)
+            }
+            override fun onVideoInputFormatChanged(eventTime: AnalyticsListener.EventTime, format: androidx.media3.common.Format, decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?) {
+                PlaybackDiagnostics.onVideoFormat(format)
+            }
+            override fun onAudioInputFormatChanged(eventTime: AnalyticsListener.EventTime, format: androidx.media3.common.Format, decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?) {
+                PlaybackDiagnostics.onAudioFormat(format)
+            }
+            override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+                PlaybackDiagnostics.onDecoderInitialized(decoderName)
+            }
+            override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
+                PlaybackDiagnostics.onDroppedVideoFrames(droppedFrames)
+            }
+        })
         exo.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) listener?.ended()
@@ -55,7 +75,7 @@ class ExoVideo(context: Context, registry: StreamRegistry, http: DataSource.Fact
 
             override fun onPlayerError(error: PlaybackException) {
                 debugLog { "exo: ${error.errorCodeName}: ${error.cause}" }
-                listener?.failed(describe(error))
+                listener?.failed(describe(error), isDecoderFailure(error))
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -96,6 +116,7 @@ class ExoVideo(context: Context, registry: StreamRegistry, http: DataSource.Fact
         set(value) = exo.setPlaybackSpeed(value)
 
     override fun load(item: VideoItem, start: Double) {
+        PlaybackDiagnostics.resetMedia()
         val meta = MediaMetadata.Builder()
             .setTitle(item.title)
             .setArtist(item.subtitle)
@@ -137,6 +158,15 @@ class ExoVideo(context: Context, registry: StreamRegistry, http: DataSource.Fact
     var aspect by mutableFloatStateOf(9f / 16f)
         private set
 }
+
+/** Only actual codec failures are eligible for automatic quality reduction. */
+private fun isDecoderFailure(e: PlaybackException): Boolean = e.errorCode in setOf(
+    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+    PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+    PlaybackException.ERROR_CODE_DECODING_FAILED,
+    PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+)
 
 /** Says why the video stopped, in the viewer's words. */
 private fun describe(e: PlaybackException): String = when (e.errorCode) {

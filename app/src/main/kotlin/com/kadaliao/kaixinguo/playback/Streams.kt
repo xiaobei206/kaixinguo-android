@@ -1,3 +1,5 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.kadaliao.kaixinguo.playback
 
 import android.net.Uri
@@ -85,7 +87,7 @@ class StreamSource(val sources: List<String>, private val key: ByteArray?, priva
 
     /** Reads `count` bytes of `source` at `offset`, and the file's size. */
     private fun read(source: String, offset: Long, count: Long): Pair<ByteArray, Long> {
-        val ds = http.createDataSource()
+        val ds = http.createDataSource().apply { addTransferListener(PlaybackDiagnostics) }
         try {
             ds.open(DataSpec.Builder().setUri(source).setPosition(offset).setLength(count).build())
             val total = totalSize(ds.responseHeaders) ?: throw IOException("CDN 没有告知文件大小")
@@ -184,7 +186,7 @@ class CencDataSource(private val registry: StreamRegistry, private val http: Dat
         val s = stream!!
         while (true) {
             closeUpstream()
-            val ds = http.createDataSource()
+            val ds = http.createDataSource().apply { addTransferListener(PlaybackDiagnostics) }
             try {
                 ds.open(DataSpec.Builder().setUri(s.sources[source]).setPosition(position).setLength(end - position).build())
                 upstream = ds

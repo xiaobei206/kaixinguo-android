@@ -2,6 +2,19 @@
 
 这里记录每个版本用户能感知到的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.4] - 2026-11-20
+
+### 新增
+
+- 播放控制栏增加 10 秒快退和快进按钮；进度条上方常驻显示当前播放时间 / 总时长
+- 「⋯」菜单新增 YouTube Stats for nerds 风格的播放诊断面板，显示当前 / 最高清晰度、编码格式、实际解码器及硬件 / 软件解码状态、网络速度、最近 20 秒真实下载活动、实时缓冲曲线和丢帧数
+- 网络活动图采集 CENC 数据源底层 HTTP 请求的真实收包字节；缓冲图按播放器播放位置与已缓冲位置实时采样，不使用模拟数据
+- 遇到明确的视频解码器错误时，自动降一档清晰度并从原播放位置重试一次；网络错误不触发降画质
+
+### 变更
+
+- 每次发布的 APK 文件名和 SHA-256 校验文件均带应用名及版本号；Release 正文自动读取本版本更新日志
+
 ## [0.4.3] - 2026-11-20
 
 ### 新增
@@ -86,7 +99,8 @@
 
 [0.4.2]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.1...v0.4.2
 [0.4.3]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.2...v0.4.3
-[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.3...HEAD
+[0.4.4]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.3...v0.4.4
+[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.4...HEAD
 [0.4.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.0...v0.3.1

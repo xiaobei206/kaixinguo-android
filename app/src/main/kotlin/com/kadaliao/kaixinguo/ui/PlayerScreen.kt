@@ -74,6 +74,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
@@ -172,6 +174,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -373,6 +376,9 @@ private class PlayerHud {
     /** Temporarily prevents auto-hide while a gesture, menu, or seek drag is active. */
     var controlsPinned by mutableStateOf(false)
 
+    /** Whether the YouTube-style playback diagnostics overlay is visible. */
+    var diagnosticsVisible by mutableStateOf(false)
+
     var holding by mutableStateOf(false)
 
     /** Whether the held finger has swiped far enough that letting go flips the lock. */
@@ -437,6 +443,9 @@ private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: 
         Gestures(hud, Modifier.fillMaxSize())
         PauseMark(Modifier.align(Alignment.Center))
         PlayerOverlay()
+        if (hud.diagnosticsVisible) {
+            PlaybackStatsOverlay(player, Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = if (landscape) 12.dp else 76.dp))
+        }
         Column(Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = hud.controlsVisible,
@@ -884,6 +893,12 @@ private fun MoreMenu(hud: PlayerHud) {
                     }
                     Entry("定时关闭", Icons.Filled.Bedtime, sleepLine(player)) { page = More.SLEEP }
                     DropdownMenuItem(
+                        text = { Text("播放诊断信息") },
+                        leadingIcon = { Icon(Icons.Outlined.Info, contentDescription = null) },
+                        trailingIcon = { Switch(checked = hud.diagnosticsVisible, onCheckedChange = null) },
+                        onClick = { hud.diagnosticsVisible = !hud.diagnosticsVisible; close() },
+                    )
+                    DropdownMenuItem(
                         text = { Text("弹幕") },
                         leadingIcon = { Icon(Icons.Filled.Subtitles, contentDescription = null) },
                         trailingIcon = { Switch(checked = player.showDanmaku, onCheckedChange = null) },
@@ -983,9 +998,11 @@ private fun clock(s: Double): String {
 /** ProgressBar is how far the episode has got, along the bottom of the video; dragging along it moves there. */
 @Composable
 private fun ProgressBar(hud: PlayerHud, modifier: Modifier) {
-    val video = LocalModel.current.player.video
+    val player = LocalModel.current.player
+    val video = player.video
     var dragged by remember { mutableStateOf<Float?>(null) } // where a drag is, as a fraction
     var at by remember { mutableDoubleStateOf(0.0) }
+    var position by remember { mutableDoubleStateOf(0.0) }
     var total by remember { mutableDoubleStateOf(0.0) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
@@ -993,12 +1010,22 @@ private fun ProgressBar(hud: PlayerHud, modifier: Modifier) {
             val d = video.duration
             total = if (d.isFinite() && d > 0) d else 0.0
             val t = video.position
+            position = if (t.isFinite() && t >= 0) t else 0.0
             at = if (total > 0 && t.isFinite()) (t / total).coerceIn(0.0, 1.0) else 0.0
             delay(250)
         }
     }
     val shown = dragged ?: at.toFloat()
     Column(modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { player.skip(-10.0) }, enabled = total > 0, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Filled.Replay10, contentDescription = "快退 10 秒", tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+            Text(clock(position) + " / " + clock(total), color = Color.White, style = MaterialTheme.typography.labelMedium.merge(shadowed), textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+            IconButton(onClick = { player.skip(10.0) }, enabled = total > 0, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Filled.Forward10, contentDescription = "快进 10 秒", tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+        }
         dragged?.let { f ->
             Text(
                 "${clock(f * total)} / ${clock(total)}",
@@ -1047,6 +1074,119 @@ private fun ProgressBar(hud: PlayerHud, modifier: Modifier) {
             drawRoundRect(Color.White.copy(alpha = 0.9f), Offset(0f, y - h / 2), Size(w * shown, h), CornerRadius(h / 2))
             drawCircle(Color.White, knob / 2, Offset((w * shown).coerceIn(knob / 2, w - knob / 2), y))
         }
+    }
+}
+
+
+/** Live Stats for nerds panel. Graphs use actual network and playback samples. */
+@Composable
+private fun PlaybackStatsOverlay(player: Player, modifier: Modifier) {
+    val video = LocalVideo.current
+    val diagnostics = com.kadaliao.kaixinguo.playback.PlaybackDiagnostics
+    var snapshot by remember { mutableStateOf(diagnostics.snapshot()) }
+    var bufferSeconds by remember { mutableFloatStateOf(0f) }
+    var bufferHistory by remember(player.number) { mutableStateOf(List(40) { 0f }) }
+    LaunchedEffect(player.number) {
+        while (true) {
+            snapshot = diagnostics.snapshot()
+            val current = video.exo.currentPosition
+            val buffered = video.exo.bufferedPosition
+            bufferSeconds = if (buffered >= current && buffered >= 0L) ((buffered - current) / 1000f).coerceAtLeast(0f) else 0f
+            bufferHistory = bufferHistory.drop(1) + bufferSeconds
+            delay(500)
+        }
+    }
+    val width = snapshot.width.takeIf { it > 0 } ?: player.sourceWidth
+    val height = snapshot.height.takeIf { it > 0 } ?: player.sourceHeight
+    val currentRes = if (width > 0 && height > 0) "$width×$height" else "\${player.quality}P"
+    val optimal = player.qualities.maxOrNull()?.let { "\${it}P" } ?: "—"
+    val fps = if (snapshot.frameRate > 0f) "  \${String.format(Locale.US, "%.0f", snapshot.frameRate)}fps" else ""
+    val codecs = snapshot.videoCodec.ifBlank { player.selectedCodec.ifBlank { "—" } } +
+        if (snapshot.audioCodec.isBlank()) "" else " · \${snapshot.audioCodec}"
+    val decoder = when (snapshot.decoderHardware) {
+        true -> "硬件解码"
+        false -> "软件解码"
+        null -> "等待解码器"
+    } + snapshot.decoderName.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+    val speed = if (snapshot.connectionSpeedBps > 0) String.format(Locale.US, "%.1f Mbps", snapshot.connectionSpeedBps / 1_000_000.0) else "—"
+    val netKb = snapshot.networkBytesLast20Seconds / 1024.0
+    val net = if (netKb >= 1024.0) String.format(Locale.US, "%.1f MB/20s", netKb / 1024.0) else String.format(Locale.US, "%.0f KB/20s", netKb)
+    val buffer = String.format(Locale.US, "%.1f s", bufferSeconds)
+
+    Column(
+        modifier.widthIn(max = 370.dp).fillMaxWidth(0.96f)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+            .background(Color(0xE8101010))
+            .padding(horizontal = 9.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text("Stats for nerds", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        StatsTextRow("Current / Optimal Res", "$currentRes$fps / $optimal")
+        StatsTextRow("Codecs", codecs)
+        StatsTextRow("Decoder", decoder)
+        StatsGraphRow("Connection Speed", speed, listOf((snapshot.connectionSpeedBps / 80_000_000f).coerceIn(0f, 1f)), StatsGraphKind.SPEED)
+        StatsGraphRow("Network Activity", net, snapshot.networkSamples.map { it.toFloat() }, StatsGraphKind.NETWORK)
+        StatsGraphRow("Buffer Health", buffer, bufferHistory, StatsGraphKind.BUFFER)
+        StatsTextRow("Dropped Frames", snapshot.droppedFrames.toString())
+    }
+}
+
+@Composable
+private fun StatsTextRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White.copy(alpha = 0.83f), fontSize = 9.sp, modifier = Modifier.width(112.dp), maxLines = 1)
+        Text(value, color = Color.White, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Clip)
+    }
+}
+
+private enum class StatsGraphKind { SPEED, NETWORK, BUFFER }
+
+@Composable
+private fun StatsGraphRow(label: String, value: String, samples: List<Float>, kind: StatsGraphKind) {
+    val latest = samples.lastOrNull() ?: 0f
+    val bufferColor = when {
+        latest < 2f -> Color(0xFFFF5252)
+        latest < 6f -> Color(0xFFFFB74D)
+        else -> Color(0xFFFFC857)
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White.copy(alpha = 0.83f), fontSize = 9.sp, modifier = Modifier.width(112.dp), maxLines = 1)
+        Canvas(Modifier.weight(1f).height(14.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(1.dp))) {
+            drawRect(Color(0xFF242424))
+            when (kind) {
+                StatsGraphKind.SPEED -> {
+                    val amount = latest.coerceIn(0f, 1f)
+                    if (amount > 0f) drawRect(Brush.horizontalGradient(listOf(Color(0xFF1976D2), Color(0xFF26C6DA), Color(0xFF66BB6A))), size = Size(size.width * amount, size.height))
+                }
+                StatsGraphKind.NETWORK -> {
+                    val maxValue = (samples.maxOrNull() ?: 0f).coerceAtLeast(1f)
+                    val slot = size.width / samples.size.coerceAtLeast(1)
+                    samples.forEachIndexed { index, sample ->
+                        if (sample > 0f) {
+                            val ratio = (sample / maxValue).coerceIn(0f, 1f)
+                            val color = when {
+                                ratio > 0.78f -> Color(0xFFFFB74D)
+                                ratio > 0.48f -> Color(0xFF26C6DA)
+                                ratio > 0.20f -> Color(0xFF42A5F5)
+                                else -> Color(0xFF1976D2)
+                            }
+                            val barHeight = size.height * (0.2f + ratio * 0.8f)
+                            drawRect(color, Offset(index * slot, size.height - barHeight), Size((slot - 1.dp.toPx()).coerceAtLeast(1f), barHeight))
+                        }
+                    }
+                }
+                StatsGraphKind.BUFFER -> {
+                    val maxSeconds = 30f
+                    val slot = size.width / (samples.size - 1).coerceAtLeast(1)
+                    for (index in 1 until samples.size) {
+                        val a = samples[index - 1].coerceIn(0f, maxSeconds)
+                        val b = samples[index].coerceIn(0f, maxSeconds)
+                        drawLine(bufferColor, Offset((index - 1) * slot, size.height - a / maxSeconds * size.height), Offset(index * slot, size.height - b / maxSeconds * size.height), 2.dp.toPx())
+                    }
+                }
+            }
+        }
+        Text(value, color = Color.White, fontSize = 9.sp, modifier = Modifier.width(62.dp).padding(start = 4.dp), textAlign = TextAlign.End, maxLines = 1)
     }
 }
 
