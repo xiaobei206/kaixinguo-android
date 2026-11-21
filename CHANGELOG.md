@@ -2,17 +2,25 @@
 
 这里记录每个版本用户能感知到的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.4.6] - 2026-11-21
+## [0.4.7] - 2026-11-21
 
 ### 新增
 
-- 播放获取失败时展示 SDK 解析到的服务器原始业务码和错误信息、HTTP 状态、脱敏接口路径、SDK 错误码及最近请求/自动更换设备记录
-- 增加完整诊断信息复制功能，便于提交问题反馈
-- 对匿名播放受限或设备被拒的错误，提供手动刷新匿名设备并从原进度重试
+- 播放故障页区分展示服务器原始业务码（保留字符串和前导零）、服务器原始错误信息、HTTP 状态、请求方法、脱敏接口路径、响应字节数及 Content-Type / Content-Encoding，不再把 SDK 错误码当作服务器业务码
+- 定向改造 openhongguo Android SDK 诊断链路：Go 错误类型携带结构化服务器响应字段，经 gomobile / Kotlin 原样传递；HTTP 错误、业务码错误和 HTTP 200 空响应分别保留各自元数据
+- 空响应明确显示实际收到字节数和解压后字节数；完整响应体不写日志、不复制，避免泄漏设备标识、Cookie、签名或播放地址
+- 增加完整诊断信息复制功能，包含时间、集数 ID、原始业务码、服务器 message、HTTP 和响应元数据、SDK 错误及自动换设备轨迹
+- 增加「刷新匿名设备并重试」，先重置匿名设备，再从当前集的历史进度继续播放；仅对匿名播放受限或设备拒绝显示
+- 正式版使用有上限的内存 SDK 请求记录，保留脱敏接口路径和自动换设备轨迹
 
-### 说明
+### 修复
 
-- SDK 0.4.0 尚未向 Android 层公开完整 HTTP 响应体；诊断页明确标注该限制，不会把 SDK 错误码冒充服务器原始业务码，也不会虚构空响应的字节长度
+- 修正诊断错误对象导致的播放器状态测试断言失效
+- 为业务错误码保留原始字符串，不再因转成整数而丢失前导零
+
+### 构建
+
+- Release CI 固定检出 openhongguo v0.4.0 源码、应用可审计补丁、运行 Go / Android SDK 测试并从补丁源码编译 AAR，再构建四种 APK
 
 ## [0.4.5] - 2026-11-21
 
@@ -120,10 +128,10 @@
 
 [0.4.2]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.1...v0.4.2
 [0.4.3]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.2...v0.4.3
-[0.4.6]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.3...v0.4.4
-[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.5...HEAD
+[0.4.7]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.5...v0.4.7
+[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.7...HEAD
 [0.4.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.0...v0.3.1

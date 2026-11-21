@@ -295,13 +295,47 @@ class CatalogTest {
 
         player.play("1", 1)
         runCurrent()
-        assertEquals(PlayerState.Failed("这一集暂时无法匿名播放，可以稍后再试"), player.state)
+        val failed = player.state as PlayerState.Failed
+        assertEquals("服务器没有返回播放信息，可能是匿名设备限制或接口暂时异常", failed.message)
+        assertEquals(ErrorCode.ANONYMOUS_LIMITED.name, failed.diagnostic?.sdkCode)
+        assertTrue(failed.diagnostic?.canRefreshDevice == true)
         assertEquals(1, model.history.get("1")?.episode)
         assertTrue(player.hasNext)
         assertFalse(player.hasPrevious)
 
         player.leave()
         assertFalse(player.isPresented)
+    }
+
+    @Test
+    fun manualDeviceRefreshResetsBeforeRetryingTheCurrentEpisode() = runTest {
+        val catalog = FakeCatalog()
+        val video = FakeVideo()
+        val model = testModel(backgroundScope, catalog, video)
+        catalog.series["1"] = Series(id = "1", title = "浅浅归聿", episodeCount = 2, platform = PlatformType.OUTER)
+        catalog.episodes["1"] = episodes("1", 2)
+
+        val player = model.player
+        player.play("1", 1, start = 30.0)
+        runCurrent()
+        val firstFailure = player.state as PlayerState.Failed
+        assertTrue(firstFailure.diagnostic?.canRefreshDevice == true)
+
+        catalog.playbacks["1e1"] = PlaybackResult(
+            playback = Playback(
+                episodeId = "1e1",
+                streams = listOf(Stream(definition = "720p", url = "https://cdn/1e1.mp4")),
+            ),
+        )
+        player.retryWithFreshDevice()
+        assertEquals(PlayerState.ResettingDevice, player.state)
+        runCurrent()
+
+        assertEquals(1, catalog.resetDeviceCalls)
+        assertTrue(catalog.calls.indexOf("resetDevice") < catalog.calls.lastIndexOf("resolve:1e1"))
+        assertNotNull(video.loaded)
+        assertEquals(27.0, video.position, 0.0)
+        assertEquals(PlayerState.Buffering, player.state)
     }
 
     /**
