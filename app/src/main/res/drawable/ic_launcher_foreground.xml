@@ -1,45 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="1024"
     android:viewportHeight="1024">
-    <group android:scaleX="0.94" android:scaleY="0.94" android:pivotX="512" android:pivotY="512">
-        <!-- the nut's shadow on the tile -->
-        <group android:rotation="-28" android:pivotX="528" android:pivotY="560">
-            <path
-                android:fillAlpha="0.22"
-                android:fillColor="#FF2F5E1C"
-                android:pathData="M300,560a228,292 0,1 0,456 0a228,292 0,1 0,-456 0z" />
-        </group>
-        <!-- the shell, a little open -->
-        <group android:rotation="-28" android:pivotX="512" android:pivotY="530">
-            <path android:pathData="M284,530a228,292 0,1 0,456 0a228,292 0,1 0,-456 0z">
-                <aapt:attr name="android:fillColor">
-                    <gradient
-                        android:type="linear"
-                        android:startX="284" android:startY="238"
-                        android:endX="740" android:endY="822">
-                        <item android:offset="0" android:color="#FFFFFBF2" />
-                        <item android:offset="1" android:color="#FFEBDDBF" />
-                    </gradient>
-                </aapt:attr>
-            </path>
-        </group>
-        <!-- the kernel: a play button -->
-        <group android:translateX="-14" android:translateY="-16">
-            <path android:pathData="M452,418 L452,662 Q452,690 476,676 L668,562 Q690,548 668,534 L476,404 Q452,390 452,418 Z">
-                <aapt:attr name="android:fillColor">
-                    <gradient
-                        android:type="linear"
-                        android:startX="0" android:startY="397"
-                        android:endX="0" android:endY="683">
-                        <item android:offset="0" android:color="#FF7CC24A" />
-                        <item android:offset="1" android:color="#FF4E8F2C" />
-                    </gradient>
-                </aapt:attr>
-            </path>
-        </group>
-    </group>
+    <!-- Rounded triangular play-ring based on the official Red Fruit mark. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M474,100 C535,98 605,138 706,218 C786,282 830,331 830,389 C830,437 790,473 721,518 L493,670 C411,725 331,690 293,617 C253,540 215,450 211,385 C205,278 280,177 385,126 C417,110 447,102 474,100 Z M449,262 C421,267 401,289 389,328 C372,384 370,451 391,497 C407,533 435,544 470,525 L643,419 C662,407 663,392 644,376 C589,330 525,284 480,266 C468,261 458,260 449,262 Z" />
+    <!-- Personal signature: 贝. -->
+    <path android:fillColor="#FF075D35" android:pathData="M726,718 C726,687 751,662 782,662 L900,662 C931,662 956,687 956,718 L956,836 C956,867 931,892 900,892 L782,892 C751,892 726,867 726,836 Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M770,708 L912,708 L912,738 L770,738 Z M770,738 L800,738 L800,808 L770,808 Z M882,738 L912,738 L912,808 L882,808 Z M800,778 L882,778 L882,808 L800,808 Z M800,808 L832,808 L832,838 L800,838 Z M832,808 L866,808 L910,840 L888,864 L832,824 Z" />
 </vector>

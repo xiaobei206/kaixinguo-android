@@ -111,8 +111,10 @@ jobs:
         shell: bash
         run: |
           VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
-          test -n "$VERSION"
+          CODE="$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$VERSION" && test -n "$CODE"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Rename APKs and generate SHA-256 checksums
@@ -128,6 +130,32 @@ jobs:
           mv "$OUT/app-universal-release.apk" "$OUT/kaixinguo-android-v${VERSION}-universal.apk"
           cd "$OUT"
           sha256sum kaixinguo-android-v${VERSION}-*.apk > "kaixinguo-android-v${VERSION}-SHA256SUMS.txt"
+
+      - name: Generate in-app updater metadata
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          OUT=app/build/outputs/apk/release
+          python3 - "$OUT" "$VERSION" "$VERSION_CODE" <<'PY'
+          import hashlib, json, pathlib, sys
+          out = pathlib.Path(sys.argv[1])
+          version, version_code = sys.argv[2], int(sys.argv[3])
+          assets = []
+          for apk in sorted(out.glob(f"kaixinguo-android-v{version}-*.apk")):
+              if apk.name.endswith("-SHA256SUMS.txt") or apk.name.endswith("-update.json"):
+                  continue
+              digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+              assets.append({"name": apk.name, "sha256": digest})
+          if len(assets) != 4:
+              raise SystemExit(f"Expected 4 APKs, found {len(assets)}")
+          metadata = {"schemaVersion": 1, "versionName": version, "versionCode": version_code, "assets": assets}
+          target = out / f"kaixinguo-android-v{version}-update.json"
+          target.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(f"Wrote {target}")
+          PY
 
       - name: Verify APK signatures and certificate consistency
         shell: bash
@@ -199,7 +227,7 @@ jobs:
       - name: Upload APKs as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kaixinguo-android-${{ steps.version.outputs.version }}-${{ github.run_number }}-fixed-signing
+          name: hongguo-quguang-android-${{ steps.version.outputs.version }}-${{ github.run_number }}-fixed-signing
           path: |
             app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-*.apk
             app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-SHA256SUMS.txt
@@ -223,7 +251,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: 开心果 Android v${{ steps.version.outputs.version }}
+          name: 红果去广 Android v${{ steps.version.outputs.version }}
           body: ${{ steps.release_notes.outputs.body }}
           files: |
             app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-arm64-v8a.apk
@@ -231,5 +259,6 @@ jobs:
             app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-x86_64.apk
             app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-universal.apk
             app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-SHA256SUMS.txt
+            app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-update.json
           fail_on_unmatched_files: true
           generate_release_notes: false

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#62d99a"/><stop offset="1" stop-color="#087a45"/></linearGradient></defs>
+<rect width="1024" height="1024" rx="210" fill="url(#g)"/>
+<path fill="#fff" fill-rule="evenodd" d="M474 100C535 98 605 138 706 218C786 282 830 331 830 389C830 437 790 473 721 518L493 670C411 725 331 690 293 617C253 540 215 450 211 385C205 278 280 177 385 126C417 110 447 102 474 100ZM449 262C421 267 401 289 389 328C372 384 370 451 391 497C407 533 435 544 470 525L643 419C662 407 663 392 644 376C589 330 525 284 480 266C468 261 458 260 449 262Z"/>
+<rect x="726" y="662" width="230" height="230" rx="56" fill="#075d35" stroke="#fff" stroke-width="12"/>
+<text x="841" y="834" font-family="sans-serif" font-size="132" font-weight="700" text-anchor="middle" fill="#fff">贝</text>
+</svg>
