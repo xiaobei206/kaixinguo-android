@@ -137,6 +137,7 @@ type AnonymousResponseError struct {
 	DecodedResponseBytes int
 	ContentType string
 	ContentEncoding string
+	RetryAfter string
 }
 
 func (e *AnonymousResponseError) Error() string {
@@ -282,6 +283,7 @@ func readAnonymous(resp *Response, method, rawURL string) ([]byte, error) {
 			HTTPStatus: status, Method: meta.method, Path: meta.path,
 			ResponseBytes: meta.responseBytes, DecodedResponseBytes: meta.decodedResponseBytes,
 			ContentType: meta.contentType, ContentEncoding: meta.contentEncoding,
+			RetryAfter: responseHeader(resp, "Retry-After"),
 		}
 	}
 	if hasBusinessCode && rawCode != "0" {
@@ -598,14 +600,366 @@ replace_once(
     fun unknownErrorCodeMapsToUnknown() {''',
 )
 
+
+replace_once(
+    "internal/protocol/playback_v5.go",
+    """	PathPlaybackV5      = "/novel/player/multi_video_model/player/v1"
+	PlaybackVersionCode = 74332
+	PlaybackVersionName = "7.4.3.32"
+""",
+    """	PathPlaybackV5      = "/novel/player/multi_video_model/player/v1"
+	PathPlaybackVideoTab = "/reading/bookapi/video_tab/multi_video_model/v1/"
+	PlaybackVersionCode = 74332
+	PlaybackVersionName = "7.4.3.32"
+""",
+)
+
+replace_once(
+    "internal/protocol/playback_v5.go",
+    "// PlaybackV5Body 只压缩一次；调用方将返回的原始字节同时用于签名和发送。",
+    """// PlaybackVideoTabPairs is the ordered query for the signed video_tab recovery route.
+// It keeps the currently registered identity but uses the compatible 7.3.9.32
+// query family and asks for exactly one episode. No alternate episode is selected.
+func PlaybackVideoTabPairs(id SearchIdentity, episodeID string) [][2]string {
+	d := id.Device.OrDefault()
+	kind, pad := "phone", "0"
+	if d.Pad {
+		kind, pad = "pad", "1"
+	}
+	const versionCode = "73932"
+	return [][2]string{
+		{"ac", "wifi"},
+		{"channel", d.Channel},
+		{"aid", AID},
+		{"app_name", AppName},
+		{"version_code", versionCode},
+		{"version_name", "7.3.9.32"},
+		{"device_platform", DevicePlatform},
+		{"os", "android"},
+		{"ssmix", "a"},
+		{"device_type", d.Model},
+		{"device_brand", d.Brand},
+		{"language", "zh"},
+		{"os_api", strconv.Itoa(d.OSAPI)},
+		{"os_version", d.OSVersion},
+		{"manifest_version_code", versionCode},
+		{"resolution", d.Resolution},
+		{"dpi", strconv.Itoa(d.DPI)},
+		{"update_version_code", versionCode},
+		{"host_abi", "arm64-v8a"},
+		{"dragon_device_type", kind},
+		{"pv_player", versionCode},
+		{"compliance_status", "0"},
+		{"need_personal_recommend", "1"},
+		{"player_so_load", "1"},
+		{"is_android_pad_screen", pad},
+		{"iid", id.InstallID},
+		{"cdid", id.CDID},
+		{"device_id", id.DeviceID},
+		{"video_id", episodeID},
+		{"video_id_type", "0"},
+		{"device_level", "1"},
+		{"need_all_video_definition", "1"},
+		{"need_mp4_align", "0"},
+		{"use_os_player", "0"},
+		{"video_platform", "1024"},
+		{"source", "0"},
+		{"from_video_id", ""},
+	}
+}
+
+// PlaybackVideoTabUserAgent is the regular 7.1.3.32 client UA used by video_tab.
+// The request query is signed separately with the 7.3.9.32 version family.
+func PlaybackVideoTabUserAgent(d model.Device) string {
+	d = d.OrDefault()
+	return fmt.Sprintf("%s/71332 (Linux; U; Android %s; zh_CN; %s; Build/%s; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)",
+		Package, d.OSVersion, d.Model, d.Build)
+}
+
+// PlaybackV5Body 只压缩一次；调用方将返回的原始字节同时用于签名和发送.""",
+)
+
+replace_once(
+    "internal/protocol/parse.go",
+    """	entry := env.Data
+	if group, ok := entry["1004"]; ok {""",
+    """	entry := env.Data
+	// The signed video_tab endpoint wraps per-episode data in video_model_data.
+	// Preserve the same strict episodeID selection as the V5 and legacy routes.
+	if group, ok := entry["video_model_data"]; ok {
+		var grouped map[string]json.RawMessage
+		if err := json.Unmarshal(group, &grouped); err != nil {
+			return nil, fmt.Errorf("playback video_model_data is not an object: %w", err)
+		}
+		entry = grouped
+	}
+	if group, ok := entry["1004"]; ok {""",
+)
+
+replace_once(
+    "sdk/reset.go",
+    """func needsFreshDevice(err error, playback bool) bool {
+	if errors.Is(err, ErrDeviceRejected) {
+		return true
+	}
+	return playback && errors.Is(err, ErrAnonymousLimited)
+}""",
+    """func needsFreshDevice(err error, playback bool) bool {
+	if errors.Is(err, ErrDeviceRejected) {
+		return true
+	}
+	// Retry-After is an explicit server backoff instruction, not a reason to
+	// register more anonymous devices and immediately repeat the same request.
+	var empty *AnonymousResponseError
+	if errors.As(err, &empty) && empty.RetryAfter != "" {
+		return false
+	}
+	return playback && errors.Is(err, ErrAnonymousLimited)
+}""",
+)
+
+replace_once(
+    "sdk/media.go",
+    """	"fmt"
+	"time"
+""",
+    """	"fmt"
+	"strings"
+	"time"
+""",
+)
+
+replace_once(
+    "sdk/media.go",
+    """		var raw []byte
+		for attempt := 0; attempt < 2; attempt++ {""",
+    """		var raw []byte
+		videoTabTried := false
+		for attempt := 0; attempt < 2; attempt++ {""",
+)
+
+replace_once(
+    "sdk/media.go",
+    """			if !errors.Is(err, ErrAnonymousLimited) || attempt == 1 {
+				break
+			}
+			if err = sleepContext(ctx, 300*time.Millisecond); err != nil {
+				return nil, err
+			}""",
+    """			if errors.Is(err, ErrAnonymousLimited) && anonymousResponseHasRetryAfter(err) {
+				// Do not retry or rotate identity when the server explicitly asks us to back off.
+				break
+			}
+			if errors.Is(err, ErrAnonymousLimited) && !videoTabTried {
+				videoTabTried = true
+				if c.logger != nil {
+					c.logger.Printf("V5 playback response was empty; trying signed video_tab GET for episode %s", episodeID)
+				}
+				tabQuery, tabHeaders, signErr := c.playbackSigner.Sign(
+					protocol.PlaybackVideoTabPairs(c.identity(p), episodeID),
+					c.clock().UnixMilli(), nil, nil,
+				)
+				if signErr != nil {
+					if c.logger != nil {
+						c.logger.Printf("video_tab playback recovery signing failed: %v", signErr)
+					}
+				} else {
+					tabHeaders["User-Agent"] = protocol.PlaybackVideoTabUserAgent(c.deviceOf(p))
+					tabHeaders["Accept"] = "application/json; charset=utf-8"
+					tabHeaders["Accept-Language"] = "zh-CN,zh;q=0.9"
+					tabURL := playbackVideoTabOrigin(c.apiOrigin) + protocol.PathPlaybackVideoTab + "?" + tabQuery
+					tabRaw, _, tabErr := c.doRaw(ctx, "GET", tabURL, tabHeaders, nil)
+					if ctxErr := ctx.Err(); ctxErr != nil {
+						return nil, ctxErr
+					}
+					if tabErr == nil {
+						if _, parseErr := protocol.ParsePlayback(tabRaw, episodeID); parseErr == nil {
+							raw, err = tabRaw, nil
+							if c.logger != nil {
+								c.logger.Printf("video_tab playback recovery succeeded for episode %s", episodeID)
+							}
+							break
+						}
+						if c.logger != nil {
+							c.logger.Printf("video_tab playback recovery returned no usable model for episode %s", episodeID)
+						}
+					} else {
+						if playbackVideoTabFatal(tabErr) {
+							return nil, tabErr
+						}
+						if c.logger != nil {
+							c.logger.Printf("video_tab playback recovery failed for episode %s: %v", episodeID, tabErr)
+						}
+					}
+				}
+			}
+			if !errors.Is(err, ErrAnonymousLimited) || attempt == 1 {
+				break
+			}
+			if err = sleepContext(ctx, 300*time.Millisecond); err != nil {
+				return nil, err
+			}""",
+)
+
+replace_once(
+    "sdk/media.go",
+    """		if err != nil {
+			if !errors.Is(err, ErrAnonymousLimited) && !playbackRouteUnavailable(err) {""",
+    """		if err != nil && anonymousResponseHasRetryAfter(err) {
+			return nil, err
+		}
+		if err != nil {
+			if !errors.Is(err, ErrAnonymousLimited) && !playbackRouteUnavailable(err) {""",
+)
+
+replace_once(
+    "sdk/media.go",
+    """func playbackRouteUnavailable(err error) bool {
+	var api *APIError
+	return errors.As(err, &api) && (api.HTTPStatus == 404 || api.HTTPStatus == 405)
+}""",
+    """func playbackRouteUnavailable(err error) bool {
+	var api *APIError
+	return errors.As(err, &api) && (api.HTTPStatus == 404 || api.HTTPStatus == 405)
+}
+
+// playbackVideoTabOrigin uses the b host for production video_tab requests, while
+// preserving a custom/test origin so the recovery path can be verified offline.
+func playbackVideoTabOrigin(origin string) string {
+	origin = strings.TrimRight(origin, "/")
+	const aHost = "api5-normal-sinfonlinea.fqnovel.com"
+	const bHost = "api5-normal-sinfonlineb.fqnovel.com"
+	if strings.Contains(origin, aHost) {
+		return strings.Replace(origin, aHost, bHost, 1)
+	}
+	return origin
+}
+
+func anonymousResponseHasRetryAfter(err error) bool {
+	var empty *AnonymousResponseError
+	return errors.As(err, &empty) && strings.TrimSpace(empty.RetryAfter) != ""
+}
+
+// Certain explicit server failures should be returned instead of immediately
+// trying older routes. Network faults and 404/405 remain eligible for fallback.
+func playbackVideoTabFatal(err error) bool {
+	if anonymousResponseHasRetryAfter(err) ||
+		errors.Is(err, ErrRateLimited) ||
+		errors.Is(err, ErrAuthenticationRequired) ||
+		errors.Is(err, ErrDeviceRejected) {
+		return true
+	}
+	var code *CodeError
+	if errors.As(err, &code) {
+		return true
+	}
+	var api *APIError
+	return errors.As(err, &api) && api.HTTPStatus >= 400 && api.HTTPStatus < 500 &&
+		api.HTTPStatus != 404 && api.HTTPStatus != 405
+}""",
+)
+
+replace_once(
+    "sdk/reset_test.go",
+    "func TestEmptyPlaybackMovesToFreshDevice(t *testing.T) {",
+    """func TestEmptyV5PlaybackRecoversViaSignedVideoTab(t *testing.T) {
+	const episodeID = "7100000000000201"
+	reg := fixture(t, "register-response.json")
+	var registers, v5Calls, tabCalls, legacyCalls int
+	var v5DeviceID, tabDeviceID, v5InstallID, tabInstallID, v5CDID, tabCDID string
+	var badTabRequest string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case protocol.PathRegister:
+			registers++
+			w.Header().Add("Set-Cookie", "ttreq=fixture-ticket; Path=/")
+			_, _ = w.Write(reg)
+		case protocol.PathPlaybackV5:
+			v5Calls++
+			v5DeviceID = r.URL.Query().Get("device_id")
+			v5InstallID = r.URL.Query().Get("iid")
+			v5CDID = r.URL.Query().Get("cdid")
+			w.WriteHeader(http.StatusOK) // Deliberately empty, as in the reported failure.
+		case protocol.PathPlaybackVideoTab:
+			tabCalls++
+			tabDeviceID = r.URL.Query().Get("device_id")
+			tabInstallID = r.URL.Query().Get("iid")
+			tabCDID = r.URL.Query().Get("cdid")
+			if r.Method != http.MethodGet || r.URL.Query().Get("video_id") != episodeID ||
+				r.URL.Query().Get("version_code") != "73932" ||
+				r.Header.Get("Content-Type") != "" || r.Header.Get("x-ss-stub") != "" ||
+				r.Header.Get("x-khronos") == "" || r.Header.Get("x-helios") == "" ||
+				r.Header.Get("x-medusa") == "" {
+				badTabRequest = fmt.Sprintf("method=%s path=%s query=%s headers=%v", r.Method, r.URL.Path, r.URL.RawQuery, r.Header)
+			}
+			_, _ = fmt.Fprintf(w, "{\\\"code\\\":0,\\\"data\\\":{\\\"video_model_data\\\":{\\\"%s\\\":{\\\"video_model\\\":{\\\"video_id\\\":\\\"%s\\\",\\\"video_list\\\":[{\\\"main_url\\\":\\\"https://cdn.example/video.mp4\\\",\\\"definition\\\":\\\"720P\\\",\\\"codec_type\\\":\\\"h264\\\"}]}}}}}", episodeID, episodeID)
+		case protocol.PathPlayback:
+			legacyCalls++
+			_, _ = w.Write(fixture(t, "clear-playback.json"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	logs := &syncLog{}
+	client, err := sdk.NewClient(sdk.Options{
+		Transport: httptransport.New(), ProfileStore: memstore.New(),
+		APIOrigin: srv.URL, RegisterOrigin: srv.URL, DistributionOrigin: srv.URL,
+		Logger: logs, DeviceResets: sdk.Int(0),
+		Clock: func() time.Time { return time.UnixMilli(1_700_000_000_123).UTC() },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, err := client.ResolvePlayback(context.Background(), episodeID, sdk.PlaybackOptions{})
+	if err != nil || pb == nil {
+		t.Fatalf("video_tab recovery result = %v, error = %v", pb, err)
+	}
+	if registers != 1 || v5Calls != 1 || tabCalls != 1 || legacyCalls != 0 {
+		t.Fatalf("registers=%d v5=%d video_tab=%d legacy=%d", registers, v5Calls, tabCalls, legacyCalls)
+	}
+	if badTabRequest != "" {
+		t.Fatalf("video_tab request is not the required signed bodyless GET: %s", badTabRequest)
+	}
+	if v5DeviceID == "" || tabDeviceID != v5DeviceID ||
+		tabInstallID != v5InstallID || tabCDID != v5CDID {
+		t.Fatalf("the recovery request changed identity: V5=(%s,%s,%s) video_tab=(%s,%s,%s)",
+			v5DeviceID, v5InstallID, v5CDID, tabDeviceID, tabInstallID, tabCDID)
+	}
+	if len(pb.Streams) != 1 || pb.Streams[0].URL != "https://cdn.example/video.mp4" {
+		t.Fatalf("unexpected recovered streams: %+v", pb.Streams)
+	}
+}
+
+func TestEmptyPlaybackMovesToFreshDevice(t *testing.T) {""",
+)
+
+replace_once(
+    "scripts/patch-openhongguo.py",
+    '"""Apply Kaixinguo\'s Android diagnostics extension to pinned openhongguo v0.4.0.',
+    '"""Apply Kaixinguo\'s Android diagnostics and signed video_tab playback recovery to pinned openhongguo v0.4.0.',
+)
+
+replace_once(
+    "scripts/patch-openhongguo.py",
+    '    "sdk/reset_test.go",\n',
+    '    "sdk/reset_test.go",\n    "sdk/media.go",\n    "sdk/reset.go",\n    "internal/protocol/playback_v5.go",\n    "internal/protocol/parse.go",\n',
+)
+
 for path in (
     "sdk/errors.go",
     "sdk/client.go",
     "sdk/errors_test.go",
     "sdk/catalog_test.go",
+    "sdk/media.go",
+    "sdk/reset.go",
+    "sdk/reset_test.go",
+    "internal/protocol/playback_v5.go",
+    "internal/protocol/parse.go",
     "bindings/internal/dispatch/dispatch.go",
     "bindings/internal/dispatch/dispatch_test.go",
 ):
     subprocess.run(["gofmt", "-w", str(ROOT / path)], check=True)
 
-print("Patched openhongguo v0.4.0 with structured HTTP/business diagnostics.")
+print("Patched openhongguo v0.4.0 with structured diagnostics and signed video_tab playback recovery.")
