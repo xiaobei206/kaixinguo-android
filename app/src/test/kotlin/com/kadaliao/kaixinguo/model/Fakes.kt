@@ -37,6 +37,7 @@ class FakeCatalog : Catalog {
     val batch = HashMap<String, Series>()
     var suggestions = emptyList<Suggestion>()
     val calls = ArrayList<String>()
+    var resetDeviceCalls = 0
 
     override suspend fun discover(options: DiscoverOptions): Page<SeriesSummary> {
         calls += "discover:${options.cursor.orEmpty()}"
@@ -72,6 +73,11 @@ class FakeCatalog : Catalog {
     override suspend fun resolvePlayback(episodeId: String): PlaybackResult {
         calls += "resolve:$episodeId"
         return playbacks[episodeId] ?: throw OpenhongguoException(ErrorCode.ANONYMOUS_LIMITED, "limited")
+    }
+
+    override suspend fun resetDevice() {
+        resetDeviceCalls++
+        calls += "resetDevice"
     }
 
     /** The comments on each episode, by ID: a page for each cursor, "" the first. An episode not here has none; a cursor not here fails. */

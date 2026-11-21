@@ -82,9 +82,10 @@ fun interface Streams {
 sealed interface PlayerState {
     data object Idle : PlayerState
     data object Resolving : PlayerState // finding the episode's file
+    data object ResettingDevice : PlayerState // replacing the anonymous device
     data object Buffering : PlayerState // the video loads
     data object Playing : PlayerState
-    data class Failed(val message: String) : PlayerState
+    data class Failed(val message: String, val diagnostic: PlaybackFailure? = null) : PlayerState
 }
 
 /** What a press and hold on the video has done to its speed. */
@@ -303,7 +304,7 @@ class Player internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                state = PlayerState.Failed(friendly(e))
+                state = PlayerState.Failed(friendly(e), PlaybackFailure.from(e, ep.id, SdkDiagnostics.snapshot()))
                 futures.remove(ep.id) // try afresh next time
             }
         }
@@ -439,6 +440,36 @@ class Player internal constructor(
         val w = app.history.get(id)
         if (w != null && w.episode == number && !w.finished) from = maxOf(from, w.position - 3)
         play(id, number, from)
+    }
+
+    /** Replaces the anonymous device, then retries this episode from its saved position. */
+    fun retryWithFreshDevice() {
+        val id = seriesID ?: return
+        val n = number
+        val ep = page?.episode(n) ?: return
+        var from = start
+        val watch = app.history.get(id)
+        if (watch != null && watch.episode == n && !watch.finished) from = maxOf(from, watch.position - 3)
+        from = from.coerceAtLeast(0.0)
+
+        val token = ++gen
+        pending = false
+        state = PlayerState.ResettingDevice
+        stopItem()
+        app.scope.launch {
+            try {
+                app.catalog.resetDevice()
+                if (gen != token) return@launch
+                futures.remove(ep.id)
+                play(id, n, from)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (gen == token) {
+                    state = PlayerState.Failed(friendly(e), PlaybackFailure.from(e, ep.id, SdkDiagnostics.snapshot()))
+                }
+            }
+        }
     }
 
     /**

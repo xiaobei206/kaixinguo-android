@@ -5,6 +5,10 @@ package com.kadaliao.kaixinguo.ui
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import android.media.AudioManager
 import android.provider.Settings
 import android.view.OrientationEventListener
@@ -30,6 +34,8 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -753,16 +759,84 @@ private fun PlayerOverlay() {
         PlayerState.Buffering -> if (!player.paused) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White) }
         }
-        is PlayerState.Failed -> Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
-            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(s.message, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 320.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = player::retry) { Text("重试") }
-                    if (player.hasNext) OutlinedButton(onClick = { player.step(1) }) { Text("下一集") }
+        PlayerState.ResettingDevice -> Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(color = Color.White)
+                Text("正在刷新匿名设备并重新获取播放信息…", color = Color.White, textAlign = TextAlign.Center)
+            }
+        }
+        is PlayerState.Failed -> {
+            val context = LocalContext.current
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f)), contentAlignment = Alignment.Center) {
+                Column(
+                    Modifier.fillMaxWidth().widthIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(24.dp),
+                    horizontalAlignment = Alignment.Start,
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    Text(s.message, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    val d = s.diagnostic
+                    if (d != null) {
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.22f))
+                        Text("服务器返回信息", color = Color.White, fontWeight = FontWeight.Bold)
+                        DiagnosticValue("服务器原始业务码", d.serverBusinessCode ?: "未解析到业务码（空响应时服务器可能没有返回业务码）")
+                        if (!d.serverErrorName.isNullOrBlank()) DiagnosticValue("服务器业务码名称", d.serverErrorName)
+                        DiagnosticValue("服务器原始错误信息", d.serverErrorMessage ?: "未取得服务器错误信息")
+                        DiagnosticValue("HTTP 状态码", d.httpStatus?.let { "$it" } ?: "SDK 日志中没有匹配到")
+                        DiagnosticValue("请求接口", d.endpoint ?: "SDK 日志中没有匹配到")
+                        DiagnosticValue("SDK 错误代码", d.sdkCode)
+                        DiagnosticValue("SDK 错误信息", d.sdkMessage)
+                        DiagnosticValue("原始响应体", d.responseBodyNote)
+                        if (d.retryAfterMs > 0) DiagnosticValue("建议等待时间", "${d.retryAfterMs} ms")
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.16f))
+                        Text("最近 SDK 请求记录", color = Color.White, fontWeight = FontWeight.Bold)
+                        if (d.events.isEmpty()) {
+                            Text("没有捕获到 SDK 请求日志", color = Color.LightGray, fontSize = 11.sp)
+                        } else {
+                            d.events.takeLast(8).forEach { event ->
+                                Text(
+                                    "${event.time}  ${event.message}",
+                                    color = Color.LightGray,
+                                    fontSize = 10.sp,
+                                )
+                            }
+                        }
+                        TextButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("开心果播放诊断", d.toReport()))
+                            Toast.makeText(context, "完整诊断信息已复制", Toast.LENGTH_SHORT).show()
+                        }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                            Text("复制完整诊断信息", color = Color.White)
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                        Button(onClick = player::retry) { Text("重试") }
+                        if (player.hasNext) OutlinedButton(onClick = { player.step(1) }) { Text("下一集") }
+                    }
+                    if (d?.canRefreshDevice == true) {
+                        OutlinedButton(
+                            onClick = player::retryWithFreshDevice,
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        ) { Text("刷新匿名设备并重试") }
+                    }
                 }
             }
         }
         else -> {}
+    }
+}
+
+@Composable
+private fun DiagnosticValue(label: String, value: String) {
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalAlignment = Alignment.Start,
+    ) {
+        Text(label, color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+        Text(value, color = Color.White, fontSize = 12.sp)
     }
 }
 

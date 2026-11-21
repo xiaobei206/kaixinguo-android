@@ -8,6 +8,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import com.kadaliao.kaixinguo.covers.CoverStore
 import com.kadaliao.kaixinguo.model.AppModel
 import com.kadaliao.kaixinguo.model.SdkCatalog
+import com.kadaliao.kaixinguo.model.SdkDiagnostics
 import com.kadaliao.kaixinguo.model.debugLogger
 import com.kadaliao.kaixinguo.playback.ExoVideo
 import com.kadaliao.kaixinguo.playback.StreamRegistry
@@ -49,7 +50,10 @@ class KaixinguoApplication : Application() {
         try {
             val client = OpenhongguoClient.create(
                 this,
-                ClientOptions(retryAttempts = 3, deviceResets = 3, logger = if (debug) { m -> Log.d("sdk", m) } else null),
+                ClientOptions(retryAttempts = 3, deviceResets = 3, logger = { line ->
+                    SdkDiagnostics.record(line)
+                    if (debug) Log.d("sdk", line)
+                }),
             )
             val scope = MainScope()
             model = AppModel(SdkCatalog(client), filesDir, cacheDir, scope, video, streams).also { m ->

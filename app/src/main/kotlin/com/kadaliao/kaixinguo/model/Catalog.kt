@@ -40,6 +40,7 @@ interface Catalog {
     suspend fun seasons(seriesId: String): Album
     suspend fun shortRank(query: ShortRankQuery): ShortRanking
     suspend fun resolvePlayback(episodeId: String): PlaybackResult
+    suspend fun resetDevice()
     suspend fun listDanmaku(seriesId: String, episodeId: String, options: DanmakuOptions): DanmakuPage
 }
 
@@ -56,6 +57,7 @@ class SdkCatalog(private val client: OpenhongguoClient) : Catalog {
     override suspend fun seasons(seriesId: String) = client.seasons(seriesId)
     override suspend fun shortRank(query: ShortRankQuery) = client.shortRank(query)
     override suspend fun resolvePlayback(episodeId: String) = client.resolvePlayback(episodeId)
+    override suspend fun resetDevice() = client.resetDevice()
     override suspend fun listDanmaku(seriesId: String, episodeId: String, options: DanmakuOptions) =
         client.listDanmaku(seriesId, episodeId, options)
 }
@@ -67,7 +69,7 @@ fun friendly(error: Throwable?): String {
         return when (error.code) {
             ErrorCode.TRANSPORT -> "网络连接不稳定，请稍后重试"
             ErrorCode.RATE_LIMITED -> "请求太频繁，请稍等片刻再试"
-            ErrorCode.ANONYMOUS_LIMITED -> "这一集暂时无法匿名播放，可以稍后再试"
+            ErrorCode.ANONYMOUS_LIMITED -> "服务器没有返回播放信息，可能是匿名设备限制或接口暂时异常"
             ErrorCode.AUTHENTICATION_REQUIRED -> "这一集需要登录才能观看"
             ErrorCode.CONTENT_UNAVAILABLE, ErrorCode.ALBUM_UNAVAILABLE -> "内容已下架或不存在"
             ErrorCode.CHALLENGE_REQUIRED, ErrorCode.DEVICE_REJECTED -> "服务器暂时拒绝了请求，请稍后再试"

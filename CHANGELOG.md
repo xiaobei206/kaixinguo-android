@@ -2,6 +2,18 @@
 
 这里记录每个版本用户能感知到的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.6] - 2026-11-21
+
+### 新增
+
+- 播放获取失败时展示 SDK 解析到的服务器原始业务码和错误信息、HTTP 状态、脱敏接口路径、SDK 错误码及最近请求/自动更换设备记录
+- 增加完整诊断信息复制功能，便于提交问题反馈
+- 对匿名播放受限或设备被拒的错误，提供手动刷新匿名设备并从原进度重试
+
+### 说明
+
+- SDK 0.4.0 尚未向 Android 层公开完整 HTTP 响应体；诊断页明确标注该限制，不会把 SDK 错误码冒充服务器原始业务码，也不会虚构空响应的字节长度
+
 ## [0.4.5] - 2026-11-21
 
 ### 改进
@@ -108,6 +120,7 @@
 
 [0.4.2]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.1...v0.4.2
 [0.4.3]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.2...v0.4.3
+[0.4.6]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.3...v0.4.4
 [未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.5...HEAD
