@@ -601,16 +601,16 @@ replace_once(
 
 replace_once(
     "sdk/device.go",
-    """"crypto/rand"
+    '''"crypto/rand"
 	"encoding/hex"
 	"io"
-	"time"""",
-    """"crypto/rand"
+	"time"''',
+    '''"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
-	"time"""",
+	"time"''',
 )
 
 replace_once(
