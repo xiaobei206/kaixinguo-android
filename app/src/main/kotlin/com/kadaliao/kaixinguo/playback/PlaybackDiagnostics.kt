@@ -83,16 +83,21 @@ object PlaybackDiagnostics : TransferListener {
         // instead of flashing "—" whenever one sampling interval is idle.
         val recentBytes = samples.takeLast(4).sum()
         val measuredBps = recentBytes * 8L
-        val estimateFresh = now - bandwidthEstimateAt < SPEED_HOLD_MS
+        val estimateFresh = bandwidthEstimateAt > 0L && now - bandwidthEstimateAt < SPEED_HOLD_MS
+        val hasRecentNetworkBytes = recentBytes > 0L
         val candidateSpeed = when {
-            recentBytes > 0L && estimateFresh -> maxOf(measuredBps, bandwidthEstimateBps)
-            recentBytes > 0L -> measuredBps
+            hasRecentNetworkBytes && estimateFresh -> maxOf(measuredBps, bandwidthEstimateBps)
+            hasRecentNetworkBytes -> measuredBps
             estimateFresh && bandwidthEstimateBps > 0L -> bandwidthEstimateBps
             else -> 0L
         }
-        if (candidateSpeed > 0L) {
+        // A bandwidth estimate is timestamped when Media3 produces it. Re-reading
+        // the same estimate must not restart its 8-second hold window on every UI
+        // frame; real received bytes, on the other hand, refresh the sample time.
+        val candidateSampleAt = if (hasRecentNetworkBytes) now else bandwidthEstimateAt
+        if (candidateSpeed > 0L && candidateSampleAt > lastValidSpeedAt) {
             lastValidSpeedBps = candidateSpeed
-            lastValidSpeedAt = now
+            lastValidSpeedAt = candidateSampleAt
         }
         val speed = if (lastValidSpeedBps > 0L && now - lastValidSpeedAt < SPEED_HOLD_MS) {
             lastValidSpeedBps
