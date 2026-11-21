@@ -542,8 +542,8 @@ func TestCallCancelled(t *testing.T) {""",
 
 replace_once(
     "bindings/mobile/android/src/test/kotlin/dev/openhongguo/ClientTest.kt",
-    "    @Test
-    fun unknownErrorCodeMapsToUnknown() {",
+    """    @Test
+    fun unknownErrorCodeMapsToUnknown() {""",
     '''    @Test
     fun serverResponseDetailsSurviveTheGoBridge() = runBlocking {
         val engine = FakeEngine { _, _ ->
