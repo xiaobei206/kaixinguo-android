@@ -143,7 +143,7 @@ jobs:
           for apk in "$OUT"/kaixinguo-android-v${VERSION}-*.apk; do
             test -f "$apk"
             result="$("$APKSIGNER" verify --verbose --print-certs "$apk" 2>&1)"
-            fingerprint="$(printf '%s\n' "$result" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+            fingerprint="$(printf '%s\n' "$result" | sed -n -E 's/^(Signer #[0-9]+ |V[0-9]+ Signer: )certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
             if [[ -z "$fingerprint" ]]; then
               printf 'APK signature verification did not return a signer certificate: %s\n%s\n' "$apk" "$result"
               exit 1
