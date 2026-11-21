@@ -109,7 +109,7 @@ jobs:
           set -euo pipefail
           awk -v version="$VERSION" '
             index($0, "## [" version "]") == 1 { found=1; print; next }
-            found && /^## \\[/ { exit }
+            found && /^## \[/ { exit }
             found { print }
             END { if (!found) exit 1 }
           ' CHANGELOG.md > release-notes.md
