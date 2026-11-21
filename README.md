@@ -163,7 +163,7 @@ adb shell am start -a android.intent.action.VIEW -d "kaixinguo://search?q=重生
 
 ## 致谢
 
-- [openhongguo](https://github.com/beilunyang/openhongguo)：红果短剧的 SDK，开心果的全部数据都来自它
+- [openhongguo（开心果构建使用的 Fork）](https://github.com/xiaobei206/openhongguo)：红果短剧 SDK；上游项目为 [beilunyang/openhongguo](https://github.com/beilunyang/openhongguo)
 - [开心果](https://github.com/kadaliao/kaixinguo)（macOS）和 [开心果 iOS](https://github.com/kadaliao/kaixinguo-ios)：本项目的界面、逻辑和解密都照着它们移植
 
 ## 许可证
