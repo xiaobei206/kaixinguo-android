@@ -822,7 +822,7 @@ replace_once(
 }""",
 )
 
-// Replace whole test functions by name so the patch stays robust to formatting.
+# Replace whole test functions by name so the patch stays robust to formatting.
 def replace_function(path: str, old_name: str, new_source: str) -> None:
     file = ROOT / path
     source = file.read_text(encoding="utf-8")

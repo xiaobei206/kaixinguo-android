@@ -18,11 +18,11 @@
         </group>
     </group>
 
-    <!-- 贝 maker's mark: deliberately inset from the mask boundary. -->
+    <!-- 贝 glyph converted from a bold Simplified Chinese typeface; kept inside the badge safe area. -->
     <path
         android:fillColor="#FF075D35"
         android:pathData="M604,625 C604,611 615,600 629,600 L709,600 C723,600 734,611 734,625 L734,705 C734,719 723,730 709,730 L629,730 C615,730 604,719 604,705 Z" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M632,626 L709,626 L709,643 L632,643 Z M632,643 L648,643 L648,682 L632,682 Z M693,643 L709,643 L709,682 L693,682 Z M648,666 L693,666 L693,682 L648,682 Z M648,682 L665,682 L665,699 L648,699 Z M665,682 L684,682 L708,700 L696,714 L665,690 Z" />
+        android:pathData="M663.39,634.70 V657.69 C663.39,671.25 659.84,687.55 623.5,698.38 C626.54,700.81 630.28,705.67 631.80,708.20 C669.66,695.35 676.14,675.30 676.14,657.79 V634.70 Z M672.40,690.08 C683.74,694.84 699.02,702.63 706.31,707.90 L713.5,698.18 C705.60,692.92 690.01,685.73 679.08,681.48 Z M635.24,618 V679.96 H647.39 V629.14 H691.84 V679.45 H704.69 V618 Z" />
 </vector>
