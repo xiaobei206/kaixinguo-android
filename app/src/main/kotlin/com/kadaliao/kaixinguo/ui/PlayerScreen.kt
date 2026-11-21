@@ -1078,24 +1078,63 @@ private fun ProgressBar(hud: PlayerHud, modifier: Modifier) {
 }
 
 
-/** Live Stats for nerds panel. Graphs use actual network and playback samples. */
+/** One 250 ms sample written into a fixed column of the 20-second sweep display. */
+private data class PlaybackStatsSample(
+    val speedBps: Long = 0L,
+    val networkBytes: Long = 0L,
+    val bufferSeconds: Float = 0f,
+)
+
+private const val STATS_SAMPLE_INTERVAL_MS = 250L
+private const val STATS_SAMPLE_COUNT = 80
+
+/** Live Stats for nerds panel. Each graph writes only at the moving sweep head. */
 @Composable
 private fun PlaybackStatsOverlay(player: Player, modifier: Modifier) {
     val video = LocalVideo.current
     val diagnostics = com.kadaliao.kaixinguo.playback.PlaybackDiagnostics
     var snapshot by remember { mutableStateOf(diagnostics.snapshot()) }
-    var bufferSeconds by remember { mutableFloatStateOf(0f) }
-    var bufferHistory by remember(player.number) { mutableStateOf(List(40) { 0f }) }
+    var bufferSeconds by remember(player.number) { mutableFloatStateOf(0f) }
+    val graphHistory = remember(player.number) {
+        mutableStateOf(List(STATS_SAMPLE_COUNT) { PlaybackStatsSample() })
+    }
+    val sweepPosition = remember(player.number) { mutableFloatStateOf(0f) }
+
     LaunchedEffect(player.number) {
+        var sampleIndex = 0
         while (true) {
-            snapshot = diagnostics.snapshot()
+            val currentSnapshot = diagnostics.snapshot()
+            snapshot = currentSnapshot
             val current = video.exo.currentPosition
             val buffered = video.exo.bufferedPosition
-            bufferSeconds = if (buffered >= current && buffered >= 0L) ((buffered - current) / 1000f).coerceAtLeast(0f) else 0f
-            bufferHistory = bufferHistory.drop(1) + bufferSeconds
-            delay(500)
+            bufferSeconds = if (buffered >= current && buffered >= 0L) {
+                ((buffered - current) / 1000f).coerceAtLeast(0f)
+            } else {
+                0f
+            }
+
+            // The 80 columns have fixed screen positions. Only the column
+            // under the sweep cursor is replaced; older columns never scroll.
+            val sample = PlaybackStatsSample(
+                speedBps = currentSnapshot.connectionSpeedBps,
+                networkBytes = currentSnapshot.networkSamples.lastOrNull() ?: 0L,
+                bufferSeconds = bufferSeconds,
+            )
+            graphHistory.value = graphHistory.value.toMutableList().also { it[sampleIndex] = sample }
+
+            val frameStart = withFrameMillis { it }
+            var elapsed = 0L
+            while (elapsed < STATS_SAMPLE_INTERVAL_MS) {
+                val frame = withFrameMillis { it }
+                elapsed = (frame - frameStart).coerceAtLeast(0L)
+                sweepPosition.floatValue = sampleIndex +
+                    (elapsed.toFloat() / STATS_SAMPLE_INTERVAL_MS).coerceIn(0f, 1f)
+            }
+            sampleIndex = (sampleIndex + 1) % STATS_SAMPLE_COUNT
+            if (sampleIndex == 0) sweepPosition.floatValue = 0f
         }
     }
+
     val width = snapshot.width.takeIf { it > 0 } ?: player.sourceWidth
     val height = snapshot.height.takeIf { it > 0 } ?: player.sourceHeight
     val currentRes = if (width > 0 && height > 0) "$width×$height" else "${player.quality}P"
@@ -1111,9 +1150,17 @@ private fun PlaybackStatsOverlay(player: Player, modifier: Modifier) {
         null -> "等待解码器"
     }
     val decoder = snapshot.decoderName.takeIf { it.isNotBlank() }?.let { "$decoderKind · $it" } ?: decoderKind
-    val speed = if (snapshot.connectionSpeedBps > 0) String.format(Locale.US, "%.1f Mbps", snapshot.connectionSpeedBps / 1_000_000.0) else "—"
+    val speed = if (snapshot.connectionSpeedBps > 0) {
+        String.format(Locale.US, "%.1f Mbps", snapshot.connectionSpeedBps / 1_000_000.0)
+    } else {
+        "等待数据"
+    }
     val netKb = snapshot.networkBytesLast20Seconds / 1024.0
-    val net = if (netKb >= 1024.0) String.format(Locale.US, "%.1f MB/20s", netKb / 1024.0) else String.format(Locale.US, "%.0f KB/20s", netKb)
+    val net = if (netKb >= 1024.0) {
+        String.format(Locale.US, "%.1f MB/20s", netKb / 1024.0)
+    } else {
+        String.format(Locale.US, "%.0f KB/20s", netKb)
+    }
     val buffer = String.format(Locale.US, "%.1f s", bufferSeconds)
 
     Column(
@@ -1127,9 +1174,9 @@ private fun PlaybackStatsOverlay(player: Player, modifier: Modifier) {
         StatsTextRow("Current / Optimal Res", "$currentRes$fps / $optimal")
         StatsTextRow("Codecs", codecs)
         StatsTextRow("Decoder", decoder)
-        StatsGraphRow("Connection Speed", speed, listOf((snapshot.connectionSpeedBps / 80_000_000f).coerceIn(0f, 1f)), StatsGraphKind.SPEED)
-        StatsGraphRow("Network Activity", net, snapshot.networkSamples.map { it.toFloat() }, StatsGraphKind.NETWORK)
-        StatsGraphRow("Buffer Health", buffer, bufferHistory, StatsGraphKind.BUFFER)
+        StatsGraphRow("Connection Speed", speed, graphHistory.value, StatsGraphKind.SPEED, sweepPosition.floatValue)
+        StatsGraphRow("Network Activity", net, graphHistory.value, StatsGraphKind.NETWORK, sweepPosition.floatValue)
+        StatsGraphRow("Buffer Health", buffer, graphHistory.value, StatsGraphKind.BUFFER, sweepPosition.floatValue)
         StatsTextRow("Dropped Frames", snapshot.droppedFrames.toString())
     }
 }
@@ -1144,50 +1191,122 @@ private fun StatsTextRow(label: String, value: String) {
 
 private enum class StatsGraphKind { SPEED, NETWORK, BUFFER }
 
+private fun connectionSpeedColor(bitsPerSecond: Long): Color = when {
+    bitsPerSecond <= 0L -> Color(0xFF242424)
+    bitsPerSecond < 150_000L -> Color(0xFFF44336)
+    bitsPerSecond < 300_000L -> Color(0xFFFF7043)
+    bitsPerSecond < 600_000L -> Color(0xFFFFEE58)
+    bitsPerSecond < 2_000_000L -> Color(0xFFD4E157)
+    else -> Color(0xFF9CCC65)
+}
+
+private fun networkActivityColor(bytes: Long): Color = when {
+    bytes <= 0L -> Color(0xFF242424)
+    bytes < 10L * 1024L -> Color(0xFFF44336)
+    bytes < 20L * 1024L -> Color(0xFFFF7043)
+    bytes < 40L * 1024L -> Color(0xFFFFEE58)
+    bytes < 80L * 1024L -> Color(0xFFD4E157)
+    else -> Color(0xFF9CCC65)
+}
+
+private fun bufferHealthColor(seconds: Float): Color = when {
+    seconds <= 0f -> Color(0xFF242424)
+    seconds < 15f -> Color(0xFFFFEE58)
+    seconds < 30f -> Color(0xFFD4E157)
+    seconds < 60f -> Color(0xFF26A69A)
+    seconds < 90f -> Color(0xFF2196F3)
+    else -> Color.White
+}
+
+/**
+ * A strip-chart graph: historical samples occupy fixed columns. The black
+ * sweep cursor moves left-to-right and only the column it passes is replaced.
+ */
 @Composable
-private fun StatsGraphRow(label: String, value: String, samples: List<Float>, kind: StatsGraphKind) {
-    val latest = samples.lastOrNull() ?: 0f
-    val bufferColor = when {
-        latest < 2f -> Color(0xFFFF5252)
-        latest < 6f -> Color(0xFFFFB74D)
-        else -> Color(0xFFFFC857)
-    }
+private fun StatsGraphRow(
+    label: String,
+    value: String,
+    samples: List<PlaybackStatsSample>,
+    kind: StatsGraphKind,
+    sweepPosition: Float,
+) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = Color.White.copy(alpha = 0.83f), fontSize = 9.sp, modifier = Modifier.width(112.dp), maxLines = 1)
-        Canvas(Modifier.weight(1f).height(14.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(1.dp))) {
+        Canvas(
+            Modifier.weight(1f).height(14.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(1.dp))
+        ) {
             drawRect(Color(0xFF242424))
+            val count = samples.size.coerceAtLeast(1)
+            val slot = size.width / count
+            val gap = 0.8.dp.toPx()
+
             when (kind) {
                 StatsGraphKind.SPEED -> {
-                    val amount = latest.coerceIn(0f, 1f)
-                    if (amount > 0f) drawRect(Brush.horizontalGradient(listOf(Color(0xFF1976D2), Color(0xFF26C6DA), Color(0xFF66BB6A))), size = Size(size.width * amount, size.height))
-                }
-                StatsGraphKind.NETWORK -> {
-                    val maxValue = (samples.maxOrNull() ?: 0f).coerceAtLeast(1f)
-                    val slot = size.width / samples.size.coerceAtLeast(1)
                     samples.forEachIndexed { index, sample ->
-                        if (sample > 0f) {
-                            val ratio = (sample / maxValue).coerceIn(0f, 1f)
-                            val color = when {
-                                ratio > 0.78f -> Color(0xFFFFB74D)
-                                ratio > 0.48f -> Color(0xFF26C6DA)
-                                ratio > 0.20f -> Color(0xFF42A5F5)
-                                else -> Color(0xFF1976D2)
-                            }
-                            val barHeight = size.height * (0.2f + ratio * 0.8f)
-                            drawRect(color, Offset(index * slot, size.height - barHeight), Size((slot - 1.dp.toPx()).coerceAtLeast(1f), barHeight))
+                        val color = connectionSpeedColor(sample.speedBps)
+                        if (sample.speedBps > 0L) {
+                            val x = index * slot
+                            drawRect(color, Offset(x, 0f), Size((slot - gap).coerceAtLeast(1f), size.height))
                         }
                     }
                 }
+
+                StatsGraphKind.NETWORK -> {
+                    samples.forEachIndexed { index, sample ->
+                        val bytes = sample.networkBytes
+                        if (bytes > 0L) {
+                            val ratio = (bytes / (80f * 1024f)).coerceIn(0f, 1f)
+                            val barHeight = (size.height * ratio).coerceAtLeast(1.2.dp.toPx())
+                            val x = index * slot
+                            drawRect(
+                                networkActivityColor(bytes),
+                                Offset(x, size.height - barHeight),
+                                Size((slot - gap).coerceAtLeast(1f), barHeight),
+                            )
+                        }
+                    }
+                }
+
                 StatsGraphKind.BUFFER -> {
-                    val maxSeconds = 30f
-                    val slot = size.width / (samples.size - 1).coerceAtLeast(1)
+                    val maxSeconds = 90f
                     for (index in 1 until samples.size) {
-                        val a = samples[index - 1].coerceIn(0f, maxSeconds)
-                        val b = samples[index].coerceIn(0f, maxSeconds)
-                        drawLine(bufferColor, Offset((index - 1) * slot, size.height - a / maxSeconds * size.height), Offset(index * slot, size.height - b / maxSeconds * size.height), 2.dp.toPx())
+                        val previous = samples[index - 1].bufferSeconds.coerceIn(0f, maxSeconds)
+                        val current = samples[index].bufferSeconds.coerceIn(0f, maxSeconds)
+                        if (previous <= 0f && current <= 0f) continue
+
+                        val x1 = (index - 1) * slot
+                        val x2 = index * slot
+                        val y1 = size.height - previous / maxSeconds * size.height
+                        val y2 = size.height - current / maxSeconds * size.height
+                        val color = bufferHealthColor(maxOf(previous, current))
+                        val area = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(x1, size.height)
+                            lineTo(x1, y1)
+                            lineTo(x2, y2)
+                            lineTo(x2, size.height)
+                            close()
+                        }
+                        drawPath(area, color.copy(alpha = 0.23f))
+                        drawLine(color, Offset(x1, y1), Offset(x2, y2), strokeWidth = 1.6.dp.toPx())
                     }
                 }
             }
+
+            val cursor = (sweepPosition % count.toFloat()).coerceIn(0f, count.toFloat())
+            val cursorX = (cursor / count) * size.width
+            val cursorWidth = 2.dp.toPx()
+            drawRect(
+                Color(0xFF080808),
+                Offset((cursorX - cursorWidth / 2f).coerceIn(0f, size.width - cursorWidth), 0f),
+                Size(cursorWidth, size.height),
+            )
+            drawLine(
+                Color.White.copy(alpha = 0.28f),
+                Offset((cursorX + cursorWidth / 2f).coerceAtMost(size.width), 0f),
+                Offset((cursorX + cursorWidth / 2f).coerceAtMost(size.width), size.height),
+                strokeWidth = 0.6.dp.toPx(),
+            )
         }
         Text(value, color = Color.White, fontSize = 9.sp, modifier = Modifier.width(62.dp).padding(start = 4.dp), textAlign = TextAlign.End, maxLines = 1)
     }
