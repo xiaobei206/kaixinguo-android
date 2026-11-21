@@ -845,7 +845,7 @@ replace_function(
 	if !errors.Is(err, sdk.ErrAnonymousLimited) {
 		t.Fatalf("err = %v", err)
 	}
-	if s.registers != 1 || s.playbacks != 3 {
+	if s.registers != 1 || s.playbacks != 1 {
 		t.Fatalf("empty response rotated identity: registers = %d playbacks = %d", s.registers, s.playbacks)
 	}
 	if strings.Contains(strings.Join(logs.lines, "\\n"), "registering a new one") {
@@ -864,7 +864,7 @@ replace_function(
 	if !errors.Is(err, sdk.ErrAnonymousLimited) {
 		t.Fatalf("err = %v", err)
 	}
-	if s.registers != 1 || s.playbacks != 3 {
+	if s.registers != 1 || s.playbacks != 1 {
 		t.Fatalf("empty response consumed reset budget: registers = %d playbacks = %d", s.registers, s.playbacks)
 	}
 }""",
