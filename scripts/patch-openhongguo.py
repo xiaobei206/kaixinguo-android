@@ -737,30 +737,33 @@ replace_once(
 replace_once(
     "sdk/media.go",
     """			v5Err := err
-			legacyBody, bodyErr := protocol.PlaybackBody(episodeID)""",
+			tabRaw, tabErr := c.resolveVideoTab(ctx, p, episodeID)""",
     """			v5Err := err
 			if c.logger != nil {
-				c.logger.Printf("playback legacy fallback after V5 failure: %v", v5Err)
+				c.logger.Printf("playback video_tab fallback after V5 failure: %v", v5Err)
 			}
-			legacyBody, bodyErr := protocol.PlaybackBody(episodeID)""",
+			tabRaw, tabErr := c.resolveVideoTab(ctx, p, episodeID)
+			if tabErr != nil && c.logger != nil {
+				c.logger.Printf("playback video_tab fallback failed: %v", tabErr)
+			}""",
 )
 
 replace_once(
     "sdk/media.go",
-    """			ticket := c.clock().UnixMilli()
-			query, headers := sign.SignPlaybackPOST(protocol.PathPlayback, protocol.DeviceQueryPairs(c.identity(p)), ticket, p.DeviceID, protocol.VersionName, legacyBody, nil)
-			raw, _, err = c.doRaw(ctx, "POST", c.apiOrigin+protocol.PathPlayback+"?"+query, anonymousHeaders(c, p, ticket, headers), legacyBody)
-			if ctxErr := ctx.Err(); ctxErr != nil {""",
-    """			ticket := c.clock().UnixMilli()
-			query, headers := sign.SignPlaybackPOST(protocol.PathPlayback, protocol.DeviceQueryPairs(c.identity(p)), ticket, p.DeviceID, protocol.VersionName, legacyBody, nil)
-			if c.logger != nil {
-				c.logger.Printf("playback legacy attempt")
-			}
-			raw, _, err = c.doRaw(ctx, "POST", c.apiOrigin+protocol.PathPlayback+"?"+query, anonymousHeaders(c, p, ticket, headers), legacyBody)
-			if err != nil && c.logger != nil {
-				c.logger.Printf("playback legacy attempt failed: %v", err)
-			}
-			if ctxErr := ctx.Err(); ctxErr != nil {""",
+    """				ticket := c.clock().UnixMilli()
+				query, headers := sign.SignPlaybackPOST(protocol.PathPlayback, protocol.DeviceQueryPairs(c.identity(p)), ticket, p.DeviceID, protocol.VersionName, legacyBody, nil)
+				raw, _, err = c.doRaw(ctx, "POST", c.apiOrigin+protocol.PathPlayback+"?"+query, anonymousHeaders(c, p, ticket, headers), legacyBody)
+				if ctxErr := ctx.Err(); ctxErr != nil {""",
+    """				ticket := c.clock().UnixMilli()
+				query, headers := sign.SignPlaybackPOST(protocol.PathPlayback, protocol.DeviceQueryPairs(c.identity(p)), ticket, p.DeviceID, protocol.VersionName, legacyBody, nil)
+				if c.logger != nil {
+					c.logger.Printf("playback legacy attempt")
+				}
+				raw, _, err = c.doRaw(ctx, "POST", c.apiOrigin+protocol.PathPlayback+"?"+query, anonymousHeaders(c, p, ticket, headers), legacyBody)
+				if err != nil && c.logger != nil {
+					c.logger.Printf("playback legacy attempt failed: %v", err)
+				}
+				if ctxErr := ctx.Err(); ctxErr != nil {""",
 )
 
 with (ROOT / "sdk/profile_diagnostic_test.go").open("w", encoding="utf-8") as f:
@@ -775,13 +778,17 @@ import (
 )
 
 func TestProfileDiagnosticIsComparableWithoutExposingIdentifiers(t *testing.T) {
+	device := model.DefaultDevice
+	if device.Brand != "Xiaomi" || device.Model != "24129PN74C" || device.OSVersion != "15" || device.OSAPI != 35 {
+		t.Fatalf("SDK default device is not Xiaomi 15: %+v", device)
+	}
 	p := &DeviceProfile{
 		CDID: "secret-cdid-value", OpenUDID: "secret-openudid",
 		ClientUDID: "secret-clientudid", OAID: "secret-oaid",
 		ReqID: "secret-reqid", DeviceID: "server-device-secret",
 		InstallID: "server-install-secret", DeviceToken: "never-log-this",
 		CreatedAt: time.Unix(10, 0).UTC(),
-		Device: &model.Device{Brand: "Xiaomi", Model: "23127PN0CC"},
+		Device: &device,
 	}
 	got := profileDiagnostic(p)
 	for _, secret := range []string{
@@ -792,9 +799,21 @@ func TestProfileDiagnosticIsComparableWithoutExposingIdentifiers(t *testing.T) {
 			t.Fatalf("diagnostic leaked raw identity %q: %s", secret, got)
 		}
 	}
-	if !strings.Contains(got, "local_fp=") || !strings.Contains(got, "server_fp=") ||
-		!strings.Contains(got, "Xiaomi/23127PN0CC") {
-		t.Fatalf("diagnostic missed comparable metadata: %s", got)
+	if !strings.Contains(got, "local_fp=") || !strings.Contains(got, "server_fp=") {
+		t.Fatalf("diagnostic missed identity fingerprints: %s", got)
+	}
+	for _, want := range []string{
+		device.Brand + "/" + device.Model,
+		"os=" + device.OSVersion,
+		"api=35",
+		"build=" + device.Build,
+		"resolution=" + device.Resolution,
+		"dpi=460",
+		"channel=" + device.Channel,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("diagnostic does not contain SDK device field %q: %s", want, got)
+		}
 	}
 	q := *p
 	q.CDID = "a-different-local-id"
