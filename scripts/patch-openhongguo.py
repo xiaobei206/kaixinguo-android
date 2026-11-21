@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Apply Kaixinguo's Android diagnostics extension to pinned openhongguo v0.4.0.
+"""Apply Kaixinguo's Android diagnostics extension to compatible openhongguo source.
 
-The upstream repository remains untouched. CI checks out the immutable tag,
-applies this audited patch, runs Go/Kotlin tests, and builds the AAR embedded
-in the Android release APKs.
+The original upstream repository remains untouched. CI checks out the configured
+SDK fork/ref, applies this audited patch, runs Go/Kotlin tests, and builds the
+AAR embedded in the Android release APKs. Patch targets are guarded so source
+layout drift fails visibly instead of silently producing a partial patch.
 """
 from pathlib import Path
 import subprocess
@@ -915,4 +916,4 @@ for path in (
 ):
     subprocess.run(["gofmt", "-w", str(ROOT / path)], check=True)
 
-print("Patched openhongguo v0.4.0 with structured HTTP/business and anonymous-profile diagnostics.")
+print("Patched openhongguo source with structured HTTP/business and anonymous-profile diagnostics.")
