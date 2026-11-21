@@ -133,6 +133,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedback
@@ -1181,6 +1182,7 @@ private fun PlaybackStatsOverlay(player: Player, modifier: Modifier) {
 
     LaunchedEffect(player.number) {
         var sampleIndex = 0
+        var smoothedGraphSpeedBps = 0.0
         while (true) {
             val currentSnapshot = diagnostics.snapshot()
             snapshot = currentSnapshot
@@ -1192,12 +1194,24 @@ private fun PlaybackStatsOverlay(player: Player, modifier: Modifier) {
                 0f
             }
 
-            // The UI displays 40 half-second points over 20 seconds.
-            // Aggregate two real 250 ms receive buckets. Do not feed the held
-            // headline speed estimate back into history as a new sample.
+            // Connection Speed is a rolling connection estimate, not the bytes
+            // in this exact 500 ms slot. CDN requests arrive in bursts, so raw
+            // per-slot bytes created empty gaps and isolated spikes in the curve.
+            // Smooth changing estimates; after the estimate expires, fade gently
+            // toward the baseline instead of suddenly breaking the blue trace.
+            val reportedSpeed = currentSnapshot.connectionSpeedBps.toDouble()
+            smoothedGraphSpeedBps = when {
+                reportedSpeed > 0.0 -> if (smoothedGraphSpeedBps <= 0.0) {
+                    reportedSpeed
+                } else {
+                    smoothedGraphSpeedBps * 0.62 + reportedSpeed * 0.38
+                }
+                else -> smoothedGraphSpeedBps * 0.78
+            }
+            if (smoothedGraphSpeedBps < 25_000.0) smoothedGraphSpeedBps = 0.0
             val networkBytes = currentSnapshot.networkSamples.takeLast(2).sum()
             val sample = PlaybackStatsSample(
-                speedBps = networkBytes * 16L, // bits received over a 500 ms slot
+                speedBps = smoothedGraphSpeedBps.toLong(),
                 networkBytes = networkBytes,
                 bufferSeconds = bufferSeconds,
             )
@@ -1272,15 +1286,6 @@ private fun StatsTextRow(label: String, value: String) {
 
 private enum class StatsGraphKind { SPEED, NETWORK, BUFFER }
 
-private fun connectionSpeedColor(bitsPerSecond: Long): Color = when {
-    bitsPerSecond <= 0L -> Color(0xFF262626)
-    bitsPerSecond < 150_000L -> Color(0xFFF44336)
-    bitsPerSecond < 300_000L -> Color(0xFFFF7043)
-    bitsPerSecond < 600_000L -> Color(0xFFFFEE58)
-    bitsPerSecond < 2_000_000L -> Color(0xFFD4E157)
-    else -> Color(0xFF9CCC65)
-}
-
 /** These thresholds apply to the aggregated 500 ms display slot. */
 private fun networkActivityColor(bytes: Long): Color = when {
     bytes <= 0L -> Color(0xFF262626)
@@ -1333,39 +1338,67 @@ private fun StatsGraphRow(
 
             when (kind) {
                 StatsGraphKind.SPEED -> {
-                    // Use the real byte count per slot, not the headline estimate
-                    // (which is intentionally held during brief idle periods).
-                    // Log scaling leaves both ordinary and fast links visible.
+                    // A single blue hue; brightness (not hue or bars) carries the
+                    // speed history. Keep a dim continuous baseline while idle.
                     val maxSpeedBps = 80_000_000.0
                     val floorSpeedBps = 100_000.0
                     val maxLog = kotlin.math.ln(1.0 + maxSpeedBps / floorSpeedBps)
-                    val points = samples.mapIndexed { index, sample ->
-                        val ratio = if (sample.speedBps <= 0L) {
-                            0f
-                        } else {
+                    val ratios = samples.map { sample ->
+                        if (sample.speedBps <= 0L) 0f else {
                             (kotlin.math.ln(1.0 + sample.speedBps.toDouble() / floorSpeedBps) / maxLog)
                                 .toFloat().coerceIn(0f, 1f)
                         }
-                        Offset((index.toFloat() + 0.5f) * slot, size.height * (1f - ratio))
                     }
+                    val baselineY = size.height - 0.65.dp.toPx()
+                    val curveHeight = (size.height - 1.4.dp.toPx()).coerceAtLeast(1f)
+                    val points = ratios.mapIndexed { index, ratio ->
+                        Offset((index.toFloat() + 0.5f) * slot, baselineY - ratio * curveHeight)
+                    }
+                    val speedBlue = Color(0xFF42A5F5)
+                    drawLine(
+                        speedBlue.copy(alpha = 0.18f),
+                        Offset(0f, baselineY),
+                        Offset(size.width, baselineY),
+                        strokeWidth = 0.8.dp.toPx(),
+                    )
 
-                    for (index in 1 until points.size) {
-                        val previous = points[index - 1]
-                        val current = points[index]
-                        val previousSpeed = samples[index - 1].speedBps
-                        val currentSpeed = samples[index].speedBps
-                        if (previousSpeed <= 0L && currentSpeed <= 0L) continue
-
-                        val color = connectionSpeedColor(maxOf(previousSpeed, currentSpeed))
-                        val area = androidx.compose.ui.graphics.Path().apply {
-                            moveTo(previous.x, size.height)
-                            lineTo(previous.x, previous.y)
-                            lineTo(current.x, current.y)
-                            lineTo(current.x, size.height)
-                            close()
+                    // Catmull-Rom-style cubic segments round off abrupt sample changes.
+                    // The entire time series is drawn, including zero/idle samples.
+                    for (index in 0 until points.lastIndex) {
+                        val p0 = points[(index - 1).coerceAtLeast(0)]
+                        val p1 = points[index]
+                        val p2 = points[index + 1]
+                        val p3 = points[(index + 2).coerceAtMost(points.lastIndex)]
+                        val dx = p2.x - p1.x
+                        val control1Y = (p1.y + (p2.y - p0.y) / 6f).coerceIn(0f, size.height)
+                        val control2Y = (p2.y - (p3.y - p1.y) / 6f).coerceIn(0f, size.height)
+                        val curve = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(p1.x, p1.y)
+                            cubicTo(
+                                p1.x + dx / 3f, control1Y,
+                                p2.x - dx / 3f, control2Y,
+                                p2.x, p2.y,
+                            )
                         }
-                        drawPath(area, color.copy(alpha = 0.14f))
-                        drawLine(color, previous, current, strokeWidth = 1.8.dp.toPx())
+                        val intensity = ((ratios[index] + ratios[index + 1]) / 2f).coerceIn(0f, 1f)
+                        drawPath(
+                            curve,
+                            speedBlue.copy(alpha = 0.08f + intensity * 0.12f),
+                            style = Stroke(
+                                width = (2.6f + intensity * 1.0f).dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                            ),
+                        )
+                        drawPath(
+                            curve,
+                            speedBlue.copy(alpha = 0.32f + intensity * 0.68f),
+                            style = Stroke(
+                                width = (1.15f + intensity * 0.45f).dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                            ),
+                        )
                     }
                 }
 
