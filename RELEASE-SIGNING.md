@@ -1,40 +1,27 @@
-# Release APK signing
+# Android Release signing
 
-The repository's GitHub Actions workflow uses a **persistent release key** when these repository Actions secrets exist:
+## Automatic signing
 
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
+Release APKs are signed by GitHub Actions with the fixed `kaixinguo-release.jks` key stored in this repository root. No GitHub CLI, local build software, or Actions Secrets setup is needed. Every release build uses the same keystore and runs signature verification on all four APK variants.
 
-The workflow verifies APK signatures and confirms that all ABI APKs use the same certificate. If the secrets are absent, CI may still build debug-signed APKs for testing, but it will **not publish a GitHub Release**. Never use a debug-signed artifact as the stable upgrade package.
+## Important trade-off: this key is public
 
-## One-time setup on Windows
+At the repository owner's explicit request, this simple personal-use app keeps the keystore and its password file in the public repository so CI can sign releases without extra setup. **This means the signing key is not private. Anyone can download it and create an APK with the same signing certificate. The signature can no longer prove that an APK was produced by the repository owner.** A third party would still need to get their APK installed on a device to replace the app, but anyone relying on this app should understand the reduced supply-chain protection. Do not reuse this key for sensitive apps or apps that handle accounts, payments, or private data.
 
-1. Keep the private signing-backup bundle somewhere private. Extract `kaixinguo-release.jks` and `signing-secrets.txt` into the repository root. Both are excluded from Git by `.gitignore`.
-2. Install [GitHub CLI](https://cli.github.com/) if needed, then run `gh auth login` with an account that can write repository Actions secrets.
-3. From the repository root, run:
+## Key identity
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\setup-release-signing-secrets.ps1
-   ```
+- Keystore file: `kaixinguo-release.jks`
+- Credential file: `signing-secrets.txt`
+- Alias: `kaixinguo-release`
+- Certificate SHA-256 fingerprint: `FB:AF:97:3E:63:79:1B:A2:59:FA:B5:B4:EB:D4:96:6A:05:84:DB:F5:43:4E:6E:EE:25:E3:51:BF:57:5A:92:34`
+- Certificate validity: 2026-11-21 through 2054-04-08
 
-4. In **Settings → Secrets and variables → Actions**, confirm that the four secret names exist. Their values are hidden by GitHub.
-5. Trigger a workflow run or push a subsequent version change. The Release job will publish only when the persistent signing configuration is available and signature checks pass.
-
-The script reads the local private files, uploads the values as GitHub Actions secrets, and does not print secret values. If setting secrets manually, the Base64 value for `ANDROID_KEYSTORE_BASE64` is produced in PowerShell by:
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes('.\kaixinguo-release.jks'))
-```
-
-## Key backup and recovery
-
-- **Never put the private keystore or its passwords in this public repository.** Anyone who obtains both could sign an APK that Android treats as an update to this app.
-- Keep at least one offline copy of the private backup bundle. GitHub Actions secrets are configuration, not a recoverable backup of the original files.
-- Keystore alias: `kaixinguo-release`.
-- Certificate SHA-256 fingerprint: `FB:AF:97:3E:63:79:1B:A2:59:FA:B5:B4:EB:D4:96:6A:05:84:DB:F5:43:4E:6E:EE:25:E3:51:BF:57:5A:92:34`.
+Keep a separate copy of `kaixinguo-android-signing-backup.zip` offline. The public repository copy is convenient for build automation, but do not rely on GitHub being the only copy of the key.
 
 ## Existing installs
 
-The v0.4.7 release was built before this persistent key was configured. Android permits an in-place update only when the new APK's signing certificate matches the installed app. If v0.4.7's certificate differs from this key, a one-time uninstall/reinstall may be necessary; later releases will use the persistent key and can update in place. Uninstalling can clear local app data, so do not do it until necessary.
+Android allows an in-place update only when the new APK's application ID and signing certificate match the installed app. The v0.4.7 APKs were produced before this fixed key was configured; they may have a different certificate. If the phone rejects the first update because of a signature mismatch, install the new release after uninstalling the old app only after considering that uninstalling can erase local app data. Subsequent releases built by this workflow will use the fixed certificate.
+
+## Build checks
+
+CI verifies that every generated APK has a valid signature, all ABI variants use the same signing certificate, and the certificate matches the fixed keystore. A release is published only after these checks pass.

@@ -55,30 +55,28 @@ jobs:
       - name: Configure stable release signing
         id: signing
         shell: bash
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [[ -z "$ANDROID_KEYSTORE_BASE64" && -z "$ANDROID_KEYSTORE_PASSWORD" && -z "$ANDROID_KEY_ALIAS" && -z "$ANDROID_KEY_PASSWORD" ]]; then
-            echo "::warning::Persistent release-signing secrets are not configured. This run may build test APKs, but it must not publish a GitHub Release."
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ -z "$ANDROID_KEYSTORE_BASE64" || -z "$ANDROID_KEYSTORE_PASSWORD" || -z "$ANDROID_KEY_ALIAS" || -z "$ANDROID_KEY_PASSWORD" ]]; then
-            echo "::error::Release-signing secrets are only partially configured. Configure all four documented secrets."
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/kaixinguo-release.jks"
+          CREDENTIALS="$GITHUB_WORKSPACE/signing-secrets.txt"
+          if [[ ! -s "$KEYSTORE_PATH" || ! -s "$CREDENTIALS" ]]; then
+            echo '::error::The fixed signing key files are missing from the repository root.'
             exit 1
           fi
-          KEYSTORE_PATH="$RUNNER_TEMP/kaixinguo-release.jks"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
-          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          get_value() { sed -n "s/^$1=//p" "$CREDENTIALS" | head -n 1; }
+          STORE_PASSWORD="$(get_value ANDROID_KEYSTORE_PASSWORD)"
+          KEY_ALIAS="$(get_value ANDROID_KEY_ALIAS)"
+          KEY_PASSWORD="$(get_value ANDROID_KEY_PASSWORD)"
+          if [[ -z "$STORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
+            echo '::error::The signing credential file is incomplete.'
+            exit 1
+          fi
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
           {
             printf 'storeFile=%s\n' "$KEYSTORE_PATH"
-            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
-            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
-            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
           } > keystore.properties
           chmod 600 "$KEYSTORE_PATH" keystore.properties
           echo "configured=true" >> "$GITHUB_OUTPUT"
@@ -136,8 +134,6 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SIGNING_CONFIGURED: ${{ steps.signing.outputs.configured }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
           APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
@@ -162,9 +158,11 @@ jobs:
             exit 1
           fi
           if [[ "$SIGNING_CONFIGURED" == 'true' ]]; then
-            expected="$(keytool -exportcert -alias "$ANDROID_KEY_ALIAS" -keystore "$RUNNER_TEMP/kaixinguo-release.jks" -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null | sha256sum | awk '{print toupper($1)}')"
+            STORE_PASSWORD="$(sed -n 's/^ANDROID_KEYSTORE_PASSWORD=//p' signing-secrets.txt | head -n 1)"
+            KEY_ALIAS="$(sed -n 's/^ANDROID_KEY_ALIAS=//p' signing-secrets.txt | head -n 1)"
+            expected="$(keytool -exportcert -alias "$KEY_ALIAS" -keystore "$GITHUB_WORKSPACE/kaixinguo-release.jks" -storepass "$STORE_PASSWORD" 2>/dev/null | sha256sum | awk '{print toupper($1)}')"
             if [[ "${fingerprints[0]}" != "$expected" ]]; then
-              echo '::error::The APK certificate does not match the configured persistent keystore.'
+              echo '::error::The APK certificate does not match the committed persistent keystore.'
               exit 1
             fi
           fi
@@ -201,7 +199,7 @@ jobs:
       - name: Upload APKs as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kaixinguo-android-${{ steps.version.outputs.version }}-${{ github.run_number }}-signing-${{ steps.signing.outputs.configured }}
+          name: kaixinguo-android-${{ steps.version.outputs.version }}-${{ github.run_number }}-fixed-signing
           path: |
             app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-*.apk
             app/build/outputs/apk/release/kaixinguo-android-v${{ steps.version.outputs.version }}-SHA256SUMS.txt
