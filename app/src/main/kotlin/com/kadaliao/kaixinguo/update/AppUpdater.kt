@@ -166,7 +166,7 @@ object AppUpdater {
                     .putExtra(UpdateInstallReceiver.EXTRA_SESSION_ID, sessionId)
                 val pending = PendingIntent.getBroadcast(
                     context, sessionId, callback,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    installStatusPendingIntentFlags(Build.VERSION.SDK_INT),
                 )
                 session.commit(pending.intentSender)
             }
@@ -175,6 +175,21 @@ object AppUpdater {
             throw e
         }
     }
+
+
+/**
+ * PackageInstaller.commit() must be able to add status extras to the callback
+ * Intent. From Android 12 (API 31), its PendingIntent therefore must be mutable.
+ * The callback targets our non-exported receiver explicitly.
+ */
+internal fun installStatusPendingIntentFlags(sdkInt: Int): Int {
+    val mutabilityFlag = if (sdkInt >= Build.VERSION_CODES.S) {
+        PendingIntent.FLAG_MUTABLE
+    } else {
+        0
+    }
+    return PendingIntent.FLAG_UPDATE_CURRENT or mutabilityFlag
+}
 
     fun canInstallPackages(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
