@@ -328,14 +328,14 @@ class CatalogTest {
             ),
         )
         player.retryWithFreshDevice()
-        assertEquals(PlayerState.ResettingDevice, player.state)
+        assertEquals("刷新期间应显示专用状态", PlayerState.ResettingDevice, player.state)
         runCurrent()
 
-        assertEquals(1, catalog.resetDeviceCalls)
-        assertTrue(catalog.calls.indexOf("resetDevice") < catalog.calls.lastIndexOf("resolve:1e1"))
-        assertNotNull(video.loaded)
-        assertEquals(27.0, video.position, 0.0)
-        assertEquals(PlayerState.Buffering, player.state)
+        assertEquals("必须先成功重置一次匿名设备", 1, catalog.resetDeviceCalls)
+        assertTrue("必须在重新获取播放信息之前重置匿名设备：${catalog.calls}", catalog.calls.indexOf("resetDevice") < catalog.calls.lastIndexOf("resolve:1e1"))
+        assertNotNull("重试成功后应加载视频", video.loaded)
+        assertEquals("应从上次进度附近恢复，而不是回到片头", 27.0, video.position, 3.0)
+        assertEquals("获取播放信息成功后应进入缓冲状态", PlayerState.Buffering, player.state)
     }
 
     /**
