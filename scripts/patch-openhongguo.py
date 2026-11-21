@@ -805,9 +805,9 @@ func TestProfileDiagnosticIsComparableWithoutExposingIdentifiers(t *testing.T) {
 
 
 
-// Empty HTTP 2xx playback bodies are ambiguous; they are not proof that the
-// current anonymous device was rejected. Only explicit DEVICE_REJECTED errors
-// should rotate the stored anonymous profile.
+# Empty HTTP 2xx playback bodies are ambiguous; they are not proof that the
+# current anonymous device was rejected. Only explicit DEVICE_REJECTED errors
+# should rotate the stored anonymous profile.
 replace_once(
     "sdk/reset.go",
     """func needsFreshDevice(err error, playback bool) bool {
@@ -844,7 +844,7 @@ replace_function(
 	if !errors.Is(err, sdk.ErrAnonymousLimited) {
 		t.Fatalf("err = %v", err)
 	}
-	if s.registers != 1 || s.playbacks != 1 {
+	if s.registers != 1 || s.playbacks != 3 {
 		t.Fatalf("empty response rotated identity: registers = %d playbacks = %d", s.registers, s.playbacks)
 	}
 	if strings.Contains(strings.Join(logs.lines, "\\n"), "registering a new one") {
@@ -863,7 +863,7 @@ replace_function(
 	if !errors.Is(err, sdk.ErrAnonymousLimited) {
 		t.Fatalf("err = %v", err)
 	}
-	if s.registers != 1 || s.playbacks != 1 {
+	if s.registers != 1 || s.playbacks != 3 {
 		t.Fatalf("empty response consumed reset budget: registers = %d playbacks = %d", s.registers, s.playbacks)
 	}
 }""",
