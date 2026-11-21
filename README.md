@@ -43,7 +43,7 @@
 | `kaixinguo-android-v<版本>-armeabi-v7a.apk` | 很老的 32 位手机 |
 | `kaixinguo-android-v<版本>-x86_64.apk` | 电脑上的模拟器 |
 
-每个 APK 文件名都带版本号，例如 `kaixinguo-android-v0.4.11-arm64-v8a.apk`，不会和之前版本重名。
+每个 APK 文件名都带版本号，例如 `kaixinguo-android-v0.4.17-arm64-v8a.apk`，不会和之前版本重名。
 
 需要 Android 9 或更高版本。出了新版本，下载新的 APK 直接覆盖安装，观看记录和收藏都会保留。
 
