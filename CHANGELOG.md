@@ -2,6 +2,16 @@
 
 这里记录每个版本用户能感知到的变化。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.8] - 2026-11-21
+
+### 改进
+
+- 重做播放诊断三条图的绘制方式：Connection Speed 改为实际 500ms 接收速率的连续多色曲线与轻量填充，不再把每个正数样本画成整高柱
+- Network Activity 将底层 250ms 网络采样合并为 40 个 500ms 时间槽，保留 20 秒历史；柱子之间留白，并采用固定 2 MiB / 500ms 参考范围和开平方高度映射，降低常见下载峰值全部顶格的问题
+- Buffer Health 保持连续曲线和半透明填充，各段颜色根据缓冲秒数变化，不再呈现与网络活动相同的柱状视觉
+- 显示数字与图表历史采样分离：连接速度文字仍保留短暂有效估算，图表只记录每个时间槽实际收到的数据，不再重复绘制保留的旧速度
+- 三条图共用 40 格、20 秒的固定时间轴和扫描头；切集后重新采样，历史列不会整体滚动
+
 ## [0.4.7] - 2026-11-21
 
 ### 新增
@@ -130,8 +140,9 @@
 [0.4.3]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.2...v0.4.3
 [0.4.5]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.3...v0.4.4
+[0.4.8]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.5...v0.4.7
-[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.7...HEAD
+[未发布]: https://github.com/xiaobei206/kaixinguo-android/compare/v0.4.8...HEAD
 [0.4.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kadaliao/kaixinguo-android/compare/v0.3.0...v0.3.1
