@@ -492,10 +492,10 @@ func TestAnonymousReadsExposeIDsAndTitles(t *testing.T) {""",
 replace_once(
     "bindings/internal/dispatch/dispatch_test.go",
     """	"github.com/beilunyang/openhongguo/bindings/internal/fixtures"
-	"github.com/beilunyang/openhongguo/sdk"""",
+	"github.com/beilunyang/openhongguo/sdk""",
     """	"github.com/beilunyang/openhongguo/bindings/internal/fixtures"
 	"github.com/beilunyang/openhongguo/internal/protocol"
-	"github.com/beilunyang/openhongguo/sdk"""",
+	"github.com/beilunyang/openhongguo/sdk""",
 )
 
 replace_once(
