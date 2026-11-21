@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply Kaixinguo's Android diagnostics extension to pinned openhongguo v0.4.0.
+"""Apply Kaixinguo's Android diagnostics and signed video_tab playback recovery to pinned openhongguo v0.4.0.
 
 The upstream repository remains untouched. CI checks out the immutable tag,
 applies this audited patch, runs Go/Kotlin tests, and builds the AAR embedded
@@ -933,18 +933,6 @@ replace_once(
 }
 
 func TestEmptyPlaybackMovesToFreshDevice(t *testing.T) {""",
-)
-
-replace_once(
-    "scripts/patch-openhongguo.py",
-    '"""Apply Kaixinguo\'s Android diagnostics extension to pinned openhongguo v0.4.0.',
-    '"""Apply Kaixinguo\'s Android diagnostics and signed video_tab playback recovery to pinned openhongguo v0.4.0.',
-)
-
-replace_once(
-    "scripts/patch-openhongguo.py",
-    '    "sdk/reset_test.go",\n',
-    '    "sdk/reset_test.go",\n    "sdk/media.go",\n    "sdk/reset.go",\n    "internal/protocol/playback_v5.go",\n    "internal/protocol/parse.go",\n',
 )
 
 for path in (
