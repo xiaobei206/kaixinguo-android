@@ -3,6 +3,7 @@
 build/
 /local.properties
 /keystore.properties
+/signing-secrets.txt
 *.jks
 *.keystore
 .idea/
