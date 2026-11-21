@@ -636,7 +636,7 @@ func profileDiagnostic(p *DeviceProfile) string {
 			d.Brand, d.Model, d.OSVersion, d.OSAPI, d.Build, d.Resolution, d.DPI, d.Channel)
 	}
 	return fmt.Sprintf(
-		"local_fp=%s server_fp=%s created_at=%s device={%s} device_id_present=%t install_id_present=%t ttreq_present=%t store_region_present=%t",
+		"local_fp=%s server_fp=%s created_at=%s device={%s} device_id_present=%t install_id_present=%t guest_ticket_present=%t store_region_present=%t",
 		hex.EncodeToString(local[:6]), serverFP, p.CreatedAt.UTC().Format(time.RFC3339Nano),
 		device, p.DeviceID != "" && p.DeviceID != "0", p.InstallID != "" && p.InstallID != "0",
 		p.TTReq != "", p.StoreRegion != "",
