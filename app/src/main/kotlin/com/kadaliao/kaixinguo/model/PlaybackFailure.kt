@@ -143,7 +143,7 @@ data class PlaybackFailure(
                         (responseBytes?.toString() ?: "未知") + " bytes，解压后 " +
                         (decodedResponseBytes?.toString() ?: "未知") + " bytes。"
                 sdkError?.code == ErrorCode.ANONYMOUS_LIMITED ->
-                    "SDK 判定服务端成功响应的内容为空；当前 AAR 未提供响应字节数和 HTTP 元数据。"
+                    "服务器响应体为空；当前 AAR 未提供 HTTP 状态和响应字节数，升级 SDK 后将显示实际元数据。"
                 serverCode != null || serverMessage != null ->
                     "已从服务器错误响应中提取并保留业务码和原始 message；未复制完整响应体，避免混入设备凭据或其他敏感字段。"
                 else ->
