@@ -10,7 +10,7 @@ import org.junit.Test
 class AppUpdaterTest {
     @Test
     fun installStatusPendingIntentIsMutableOnAndroid12AndLater() {
-        val flags = installStatusPendingIntentFlags(Build.VERSION_CODES.S)
+        val flags = AppUpdater.installStatusPendingIntentFlags(Build.VERSION_CODES.S)
 
         assertTrue(flags and PendingIntent.FLAG_UPDATE_CURRENT != 0)
         assertTrue(flags and PendingIntent.FLAG_MUTABLE != 0)
@@ -19,7 +19,7 @@ class AppUpdaterTest {
 
     @Test
     fun installStatusPendingIntentKeepsPreAndroid12Compatibility() {
-        val flags = installStatusPendingIntentFlags(Build.VERSION_CODES.R)
+        val flags = AppUpdater.installStatusPendingIntentFlags(Build.VERSION_CODES.R)
 
         assertTrue(flags and PendingIntent.FLAG_UPDATE_CURRENT != 0)
         assertFalse(flags and PendingIntent.FLAG_IMMUTABLE != 0)
