@@ -22,8 +22,8 @@ android {
         // Android 9: the first that decodes the CDN's HEIC covers.
         minSdk = 28
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.4.10"
+        versionCode = 16
+        versionName = "0.4.11"
     }
 
     signingConfigs {

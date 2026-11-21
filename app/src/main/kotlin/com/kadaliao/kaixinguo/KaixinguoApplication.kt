@@ -39,6 +39,7 @@ class KaixinguoApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         val debug = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        SdkDiagnostics.initialize(this)
         if (debug) debugLogger = { Log.d("kxg", it) }
         val http = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(20_000)

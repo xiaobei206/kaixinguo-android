@@ -1,6 +1,12 @@
 package com.kadaliao.kaixinguo.model
 
+import android.app.ActivityManager
+import android.content.Context
+import android.os.Build
+import android.os.Environment
+import android.os.StatFs
 import dev.openhongguo.ErrorCode
+import java.util.Locale
 import dev.openhongguo.OpenhongguoException
 import java.time.Instant
 import java.util.ArrayDeque
@@ -14,17 +20,45 @@ data class SdkApiTrace(
 )
 
 object SdkDiagnostics {
-    private const val MAX_EVENTS = 96
+    private const val MAX_EVENTS = 128
     private val lock = Any()
     private val events = ArrayDeque<SdkApiTrace>()
+    @Volatile private var deviceEnvironment = "设备环境尚未初始化"
     private val httpLine = Regex("""^HTTP\s+(\S+)\s+(https?://\S+)\s+->\s+(\d+)\s*$""")
+
+    fun initialize(context: Context) {
+        deviceEnvironment = runCatching {
+            val app = context.applicationContext
+            val manager = app.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memory = ActivityManager.MemoryInfo()
+            manager?.getMemoryInfo(memory)
+            val storage = StatFs(Environment.getDataDirectory().absolutePath)
+            val actualDevice = listOf(Build.MANUFACTURER, Build.MODEL, Build.PRODUCT)
+                .filter { it.isNotBlank() }.distinct().joinToString(" / ")
+            val ram = manager?.let { gib(memory.totalMem) } ?: "不可读取"
+            "实际设备=" + actualDevice +
+                "；Android=" + Build.VERSION.RELEASE + " API=" + Build.VERSION.SDK_INT +
+                "；ABI=" + Build.SUPPORTED_ABIS.joinToString(",") +
+                "；RAM=" + ram +
+                "；内部存储总量=" + gib(storage.totalBytes) + " 可用=" + gib(storage.availableBytes) +
+                "；SDK 固定上报模板=Xiaomi/23127PN0CC Android14 API34 1200*2670 DPI460 channel=xiaomi_8662_64"
+        }.getOrElse { "设备环境读取失败：" + it.javaClass.simpleName }
+    }
+
+    private fun gib(bytes: Long): String =
+        String.format(Locale.US, "%.1f GiB", bytes.toDouble() / (1024.0 * 1024.0 * 1024.0))
+
+    fun environmentSummary(): String = deviceEnvironment
 
     fun record(line: String) {
         val safeLine = line.trim().take(600)
         val match = httpLine.matchEntire(safeLine)
         val isDeviceRotation = safeLine.contains("anonymous device unusable", ignoreCase = true) ||
             safeLine.contains("registering a new anonymous device", ignoreCase = true)
-        if (match == null && !isDeviceRotation) return
+        val isProfileEvent = safeLine.contains("anonymous profile", ignoreCase = true) ||
+            safeLine.contains("anonymous registration", ignoreCase = true)
+        val isPlaybackEvent = safeLine.startsWith("playback ", ignoreCase = true)
+        if (match == null && !isDeviceRotation && !isProfileEvent && !isPlaybackEvent) return
 
         val url = match?.groupValues?.get(2)?.substringBefore('?')
         val event = SdkApiTrace(
@@ -85,6 +119,8 @@ data class PlaybackFailure(
         appendLine("响应体说明：" + responseBodyNote)
         appendLine("SDK 建议可重试：" + retryable)
         appendLine("SDK 建议等待：" + retryAfterMs + " ms")
+        appendLine("手机和设备环境：" + SdkDiagnostics.environmentSummary())
+        appendLine("隐私说明：匿名标识只显示短摘要；不记录原始设备 ID、Cookie、Token、签名或完整响应体。")
         appendLine("最近 SDK 请求记录：")
         if (events.isEmpty()) appendLine("（无）")
         events.forEach { appendLine(it.time + "  " + it.message) }
