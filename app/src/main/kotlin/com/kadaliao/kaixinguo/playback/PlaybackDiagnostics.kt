@@ -21,13 +21,17 @@ object PlaybackDiagnostics : TransferListener {
         val frameRate: Float, val bitrate: Int, val droppedFrames: Long,
     )
 
-    private const val BUCKET_MS = 500L
-    private const val BUCKETS = 40
+    // 80 fixed columns at 250 ms each form a 20-second history.
+    private const val BUCKET_MS = 250L
+    private const val BUCKETS = 80
+    private const val SPEED_HOLD_MS = 8_000L
     private val lock = Any()
     private val bytesByBucket = TreeMap<Long, Long>()
     private var activeTransfers = 0
     @Volatile private var bandwidthEstimateBps = 0L
     @Volatile private var bandwidthEstimateAt = 0L
+    @Volatile private var lastValidSpeedBps = 0L
+    @Volatile private var lastValidSpeedAt = 0L
     @Volatile private var videoCodec = ""
     @Volatile private var audioCodec = ""
     @Volatile private var decoderName = ""
@@ -42,6 +46,7 @@ object PlaybackDiagnostics : TransferListener {
         videoCodec = ""; audioCodec = ""; decoderName = ""; decoderHardware = null
         width = 0; height = 0; frameRate = 0f; bitrate = 0; droppedFrames = 0L
         bandwidthEstimateBps = 0L; bandwidthEstimateAt = 0L
+        lastValidSpeedBps = 0L; lastValidSpeedAt = 0L
         synchronized(lock) { bytesByBucket.clear() }
     }
 
@@ -72,13 +77,31 @@ object PlaybackDiagnostics : TransferListener {
             while (bytesByBucket.isNotEmpty() && bytesByBucket.firstKey() < oldest) bytesByBucket.pollFirstEntry()
             (0 until BUCKETS).map { bytesByBucket[bucket - BUCKETS + 1 + it] ?: 0L }
         }
+
+        // Four 250 ms buckets make a rolling one-second throughput sample.
+        // Keep the last useful estimate briefly through short-drama request gaps,
+        // instead of flashing "—" whenever one sampling interval is idle.
         val recentBytes = samples.takeLast(4).sum()
-        val measuredBps = recentBytes * 8L / 2L
-        val estimateFresh = now - bandwidthEstimateAt < 4_000L
+        val measuredBps = recentBytes * 8L
+        val estimateFresh = now - bandwidthEstimateAt < SPEED_HOLD_MS
+        val candidateSpeed = when {
+            recentBytes > 0L && estimateFresh -> maxOf(measuredBps, bandwidthEstimateBps)
+            recentBytes > 0L -> measuredBps
+            estimateFresh && bandwidthEstimateBps > 0L -> bandwidthEstimateBps
+            else -> 0L
+        }
+        if (candidateSpeed > 0L) {
+            lastValidSpeedBps = candidateSpeed
+            lastValidSpeedAt = now
+        }
+        val speed = if (lastValidSpeedBps > 0L && now - lastValidSpeedAt < SPEED_HOLD_MS) {
+            lastValidSpeedBps
+        } else {
+            0L
+        }
+
         val active: Boolean
         synchronized(lock) { active = activeTransfers > 0 }
-        val speed = if (recentBytes > 0) maxOf(measuredBps, if (estimateFresh) bandwidthEstimateBps else 0L)
-            else if (active && estimateFresh) bandwidthEstimateBps else 0L
         return Snapshot(
             speed, samples, samples.sum(), active, videoCodec, audioCodec, decoderName,
             decoderHardware, width, height, frameRate, bitrate, droppedFrames,
