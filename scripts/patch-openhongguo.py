@@ -46,6 +46,33 @@ replace_once(
 
 replace_once(
     "sdk/errors.go",
+    """func (e *APIError) Error() string {
+	if e == nil {
+		return "openhongguo: API error"
+	}
+	return fmt.Sprintf("openhongguo: API error (HTTP %d, code %s)", e.HTTPStatus, e.Code)
+}""",
+    """func (e *APIError) Error() string {
+	if e == nil {
+		return "openhongguo: API error"
+	}
+	// Preserve the CLI's established user-facing wording. Structured server
+	// details are carried separately through the Android binding.
+	switch e.HTTPStatus {
+	case 401, 403:
+		return "openhongguo: authentication required"
+	case 429:
+		return "openhongguo: rate limited"
+	}
+	if e.Message != "" {
+		return fmt.Sprintf("openhongguo: %s (HTTP %d, code %s)", e.Message, e.HTTPStatus, e.Code)
+	}
+	return fmt.Sprintf("openhongguo: API error (HTTP %d, code %s)", e.HTTPStatus, e.Code)
+}""",
+)
+
+replace_once(
+    "sdk/errors.go",
     """type CodeError struct {
 	// Code 是响应体中的业务码，服务端只给出消息时为 0；
 	// Name 是已知的业务码符号名。
