@@ -82,6 +82,7 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
@@ -176,6 +177,7 @@ import com.kadaliao.kaixinguo.model.Player
 import com.kadaliao.kaixinguo.model.PlayerState
 import com.kadaliao.kaixinguo.model.Sleep
 import com.kadaliao.kaixinguo.model.favLabel
+import com.kadaliao.kaixinguo.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -951,6 +953,7 @@ private enum class More { MAIN, SPEED, QUALITY, SLEEP }
 private fun MoreMenu(hud: PlayerHud) {
     val model = LocalModel.current
     val router = LocalRouter.current
+    val activity = LocalActivity.current as? MainActivity
     val player = model.player
     var open by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(More.MAIN) }
@@ -1007,6 +1010,15 @@ private fun MoreMenu(hud: PlayerHud) {
                             },
                         )
                     }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("检查更新") },
+                        leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                        onClick = {
+                            close()
+                            activity?.checkForUpdatesManually()
+                        },
+                    )
                 }
                 More.SPEED -> {
                     Heading("倍速") { page = More.MAIN }

@@ -10,7 +10,12 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.util.Rational
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
@@ -30,6 +35,12 @@ import com.kadaliao.kaixinguo.ui.StartFailed
 import com.kadaliao.kaixinguo.ui.Tab
 import com.kadaliao.kaixinguo.ui.KaixinguoTheme
 import com.kadaliao.kaixinguo.ui.Route
+import com.kadaliao.kaixinguo.update.AppUpdater
+import com.kadaliao.kaixinguo.update.UpdateDialog
+import com.kadaliao.kaixinguo.update.UpdateInfo
+import com.kadaliao.kaixinguo.update.UpdateUiState
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -41,6 +52,9 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val app get() = application as KaixinguoApplication
     private var inPip by mutableStateOf(false)
+    private var updateState by mutableStateOf<UpdateUiState?>(null)
+    private var updateCheckInProgress = false
+    private var updateJob: Job? = null
     private var pipWanted = false
     private var controller: ListenableFuture<MediaController>? = null
 
@@ -50,7 +64,18 @@ class MainActivity : ComponentActivity() {
         val model = app.model
         setContent {
             KaixinguoTheme {
-                if (model == null) StartFailed(app.startError) else App(model, app.router, app.covers, app.video, inPip)
+                Box(Modifier.fillMaxSize()) {
+                    if (model == null) StartFailed(app.startError)
+                    else App(model, app.router, app.covers, app.video, inPip)
+                    updateState?.let { state ->
+                        UpdateDialog(
+                            state = state,
+                            onUpdate = ::beginUpdate,
+                            onCancel = ::cancelUpdate,
+                            onRetry = ::beginUpdate,
+                        )
+                    }
+                }
             }
         }
         if (model == null) return
@@ -60,6 +85,7 @@ class MainActivity : ComponentActivity() {
         model.reopenPlayer(open = link == null)
         link?.let { open(it, model) }
         // Picture in picture follows the episode: on while it plays.
+        if (savedInstanceState == null) checkForUpdate(showFeedback = false)
         lifecycleScope.launch {
             snapshotFlow {
                 val p = model.player
@@ -69,6 +95,14 @@ class MainActivity : ComponentActivity() {
                 pipWanted = wanted
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setPip(wanted)
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val awaiting = updateState as? UpdateUiState.AwaitingPermission
+        if (awaiting != null && AppUpdater.canInstallPackages(this)) {
+            startDownloadAndInstall(awaiting.info)
         }
     }
 
@@ -116,6 +150,95 @@ class MainActivity : ComponentActivity() {
         player.inPictureInPicture = isInPictureInPictureMode
         // Closing the window stops the episode; the app, back, shows what the viewer was browsing.
         if (!isInPictureInPictureMode && lifecycle.currentState == Lifecycle.State.CREATED) player.leave()
+    }
+
+    /**
+     * Called from the playback overflow menu. Cold-start checks stay quiet;
+     * this explicit check reports the result so the viewer knows it worked.
+     */
+    fun checkForUpdatesManually() {
+        if (updateCheckInProgress) {
+            Toast.makeText(this, "正在检查更新，请稍候", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (updateState != null) {
+            Toast.makeText(this, "更新窗口已经打开", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "正在检查更新…", Toast.LENGTH_SHORT).show()
+        checkForUpdate(showFeedback = true)
+    }
+
+    private fun checkForUpdate(showFeedback: Boolean) {
+        if (updateCheckInProgress) return
+        updateCheckInProgress = true
+        lifecycleScope.launch {
+            try {
+                val info = AppUpdater.check(this@MainActivity)
+                if (info != null) {
+                    updateState = UpdateUiState.Available(info)
+                } else if (showFeedback) {
+                    Toast.makeText(this@MainActivity, "当前已经是最新版本", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (showFeedback) {
+                    val message = e.message?.take(100).orEmpty()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (message.isBlank()) "检查更新失败，请检查网络" else "检查更新失败：$message",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            } finally {
+                updateCheckInProgress = false
+            }
+        }
+    }
+
+    private fun beginUpdate(info: UpdateInfo) {
+        if (!AppUpdater.canInstallPackages(this)) {
+            updateState = UpdateUiState.AwaitingPermission(info)
+            val settingsIntent = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:$packageName"),
+            )
+            runCatching { startActivity(settingsIntent) }.onFailure {
+                updateState = UpdateUiState.Failed(info, "无法打开安装授权设置")
+            }
+            return
+        }
+        startDownloadAndInstall(info)
+    }
+
+    private fun startDownloadAndInstall(info: UpdateInfo) {
+        if (updateJob?.isActive == true) return
+        updateState = UpdateUiState.Downloading(info, 0)
+        updateJob = lifecycleScope.launch {
+            try {
+                val apk = AppUpdater.download(this@MainActivity, info) { progress ->
+                    runOnUiThread {
+                        if (updateState is UpdateUiState.Downloading) {
+                            updateState = UpdateUiState.Downloading(info, progress)
+                        }
+                    }
+                }
+                updateState = UpdateUiState.Installing(info)
+                AppUpdater.install(this@MainActivity, apk)
+                updateState = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateState = UpdateUiState.Failed(info, e.message ?: "未知错误")
+            }
+        }
+    }
+
+    private fun cancelUpdate() {
+        updateJob?.cancel()
+        updateJob = null
+        updateState = null
     }
 
     private fun canPip() = packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
