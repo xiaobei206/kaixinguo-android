@@ -23,7 +23,7 @@ object SdkDiagnostics {
     private const val MAX_EVENTS = 96
     private val lock = Any()
     private val events = ArrayDeque<SdkApiTrace>()
-    private val httpLine = Regex("""^HTTP\\s+(\\S+)\\s+(https?://\\S+)\\s+->\\s+(\\d+)\\s*$""")
+    private val httpLine = Regex("""^HTTP\s+(\S+)\s+(https?://\S+)\s+->\s+(\d+)\s*$""")
 
     fun record(line: String) {
         val safeLine = line.trim().take(600)
@@ -88,8 +88,8 @@ data class PlaybackFailure(
     }
 
     companion object {
-        private val businessCode = Regex("""\\(code\\s+([^,]+),\\s+([^)]+)\\)$""")
-        private val httpStatusInMessage = Regex("""HTTP\\s+(\\d{3})""")
+        private val businessCode = Regex("""\(code\s+([^,]+),\s+([^)]+)\)$""")
+        private val httpStatusInMessage = Regex("""HTTP\s+(\d{3})""")
 
         fun from(error: Throwable, episodeId: String, recentEvents: List<SdkApiTrace>): PlaybackFailure {
             val sdkError = error as? OpenhongguoException
