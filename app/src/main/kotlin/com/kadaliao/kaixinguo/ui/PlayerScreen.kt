@@ -8,7 +8,7 @@ import android.content.res.Configuration
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
+import android.widget.Toast as AndroidToast
 import android.media.AudioManager
 import android.provider.Settings
 import android.view.OrientationEventListener
@@ -806,7 +806,7 @@ private fun PlayerOverlay() {
                         TextButton(onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("开心果播放诊断", d.toReport()))
-                            Toast.makeText(context, "完整诊断信息已复制", Toast.LENGTH_SHORT).show()
+                            AndroidToast.makeText(context, "完整诊断信息已复制", AndroidToast.LENGTH_SHORT).show()
                         }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                             Text("复制完整诊断信息", color = Color.White)
                         }
