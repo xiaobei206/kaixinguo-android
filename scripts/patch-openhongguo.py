@@ -803,6 +803,104 @@ func TestProfileDiagnosticIsComparableWithoutExposingIdentifiers(t *testing.T) {
 }
 """)
 
+
+
+// Empty HTTP 2xx playback bodies are ambiguous; they are not proof that the
+// current anonymous device was rejected. Only explicit DEVICE_REJECTED errors
+// should rotate the stored anonymous profile.
+replace_once(
+    "sdk/reset.go",
+    """func needsFreshDevice(err error, playback bool) bool {
+	if errors.Is(err, ErrDeviceRejected) {
+		return true
+	}
+	return playback && errors.Is(err, ErrAnonymousLimited)
+}""",
+    """func needsFreshDevice(err error, _ bool) bool {
+	return errors.Is(err, ErrDeviceRejected)
+}""",
+)
+
+// Replace whole test functions by name so the patch stays robust to formatting.
+def replace_function(path: str, old_name: str, new_source: str) -> None:
+    file = ROOT / path
+    source = file.read_text(encoding="utf-8")
+    marker = f"func {old_name}("
+    start = source.find(marker)
+    if start < 0:
+        raise SystemExit(f"{path}: function {old_name} not found")
+    end = source.find("\nfunc ", start + len(marker))
+    if end < 0:
+        end = len(source)
+    file.write_text(source[:start] + new_source.rstrip() + source[end:], encoding="utf-8")
+
+replace_function(
+    "sdk/reset_test.go",
+    "TestEmptyPlaybackMovesToFreshDevice",
+    """func TestEmptyPlaybackDoesNotRotateDevice(t *testing.T) {
+	s := &devicePerRequest{emptyFor: 1}
+	client, logs := resetClient(t, s.handler(t), nil)
+	_, err := client.ResolvePlayback(context.Background(), "7100000000000201", sdk.PlaybackOptions{})
+	if !errors.Is(err, sdk.ErrAnonymousLimited) {
+		t.Fatalf("err = %v", err)
+	}
+	if s.registers != 1 || s.playbacks != 1 {
+		t.Fatalf("empty response rotated identity: registers = %d playbacks = %d", s.registers, s.playbacks)
+	}
+	if strings.Contains(strings.Join(logs.lines, "\\n"), "registering a new one") {
+		t.Fatalf("empty response triggered a device reset: %q", logs.lines)
+	}
+}""",
+)
+
+replace_function(
+    "sdk/reset_test.go",
+    "TestEmptyPlaybackGivesUpAfterDefaultResets",
+    """func TestPersistentEmptyPlaybackDoesNotConsumeResetBudget(t *testing.T) {
+	s := &devicePerRequest{emptyFor: 99}
+	client, _ := resetClient(t, s.handler(t), nil)
+	_, err := client.ResolvePlayback(context.Background(), "7100000000000201", sdk.PlaybackOptions{})
+	if !errors.Is(err, sdk.ErrAnonymousLimited) {
+		t.Fatalf("err = %v", err)
+	}
+	if s.registers != 1 || s.playbacks != 1 {
+		t.Fatalf("empty response consumed reset budget: registers = %d playbacks = %d", s.registers, s.playbacks)
+	}
+}""",
+)
+
+replace_function(
+    "sdk/reset_test.go",
+    "TestConcurrentFailuresRegisterOneDevice",
+    """func TestConcurrentEmptyResponsesKeepOneDevice(t *testing.T) {
+	s := &devicePerRequest{emptyFor: 1}
+	client, _ := resetClient(t, s.handler(t), nil)
+	if _, err := client.Search(context.Background(), "短剧", sdk.SearchOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := client.ResolvePlayback(context.Background(), "7100000000000201", sdk.PlaybackOptions{})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if !errors.Is(err, sdk.ErrAnonymousLimited) {
+			t.Fatalf("expected empty-response error, got %v", err)
+		}
+	}
+	if s.registers != 1 {
+		t.Fatalf("empty responses caused concurrent identity churn: registers = %d, want 1", s.registers)
+	}
+}""",
+)
+
 for path in (
     "sdk/errors.go",
     "sdk/device.go",
