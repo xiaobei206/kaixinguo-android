@@ -41,7 +41,7 @@ object SdkDiagnostics {
                 "；ABI=" + Build.SUPPORTED_ABIS.joinToString(",") +
                 "；RAM=" + ram +
                 "；内部存储总量=" + gib(storage.totalBytes) + " 可用=" + gib(storage.availableBytes) +
-                "；SDK 固定上报模板=Xiaomi/23127PN0CC Android14 API34 1200*2670 DPI460 channel=xiaomi_8662_64"
+                "；SDK 固定上报模板=Xiaomi/24129PN74C Android15 API35 Build/AQ3A.240812.002 1200*2670 DPI460 channel=xiaomi_8662_64"
         }.getOrElse { "设备环境读取失败：" + it.javaClass.simpleName }
     }
 
