@@ -4,10 +4,10 @@
     android:height="108dp"
     android:viewportWidth="1024"
     android:viewportHeight="1024">
-    <!-- Keep the complete mark inside Android's centered adaptive-icon safe circle. -->
+    <!-- The 108dp adaptive canvas is rendered as a 72dp launcher icon; size the mark accordingly. -->
     <group
-        android:scaleX="0.96"
-        android:scaleY="0.96"
+        android:scaleX="0.64"
+        android:scaleY="0.64"
         android:pivotX="520"
         android:pivotY="512">
         <group android:translateY="127">
@@ -18,7 +18,7 @@
         </group>
     </group>
 
-    <!-- 贝 glyph converted from a bold Simplified Chinese typeface; kept inside the badge safe area. -->
+    <!-- Keep the Bé glyph independent so its size and position do not change with the fruit mark. -->
     <path
         android:fillColor="#FF075D35"
         android:pathData="M604,625 C604,611 615,600 629,600 L709,600 C723,600 734,611 734,625 L734,705 C734,719 723,730 709,730 L629,730 C615,730 604,719 604,705 Z" />
