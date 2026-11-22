@@ -3,15 +3,16 @@
 package com.kadaliao.kaixinguo.ui
 
 import android.app.Activity
+import android.graphics.Bitmap
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast as AndroidToast
-import android.media.AudioManager
 import android.provider.Settings
 import android.view.OrientationEventListener
+import android.view.TextureView
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
@@ -28,6 +29,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -67,6 +69,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -132,6 +135,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
@@ -148,6 +152,7 @@ import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -191,8 +196,9 @@ import kotlin.math.roundToInt
  * PlayerScreen is the episode playing, its video filling the screen: what
  * plays and how fast above it, the episodes below it on phones and beside
  * it on tablets. Swiping up goes on to the next episode, and down back to
- * the one before; sideways sets the brightness on the left half and the
- * volume on the right. In picture in picture only the video shows.
+ * the one before; upper-half horizontal swipes set brightness, while
+ * lower-half horizontal swipes seek backward or forward. In picture in picture
+ * only the video shows.
  */
 @Composable
 fun PlayerScreen(inPip: Boolean) {
@@ -403,6 +409,20 @@ private class PlayerHud {
      */
     var brightness by mutableFloatStateOf(1f)
 
+    /** A lower-half horizontal scrub is in progress. */
+    var seeking by mutableStateOf(false)
+
+    /** Where the scrub began, where it currently points, and the episode length, in seconds. */
+    var seekPreviewStart by mutableDoubleStateOf(0.0)
+    var seekPreviewPosition by mutableDoubleStateOf(0.0)
+    var seekPreviewDuration by mutableDoubleStateOf(0.0)
+
+    /** A small captured video frame shown while scrubbing. */
+    var seekPreviewBitmap by mutableStateOf<Bitmap?>(null)
+
+    /** PlayerView's TextureView lets the scrubber capture a real frame at the target time. */
+    var textureView: TextureView? = null
+
     /** What the last gesture did, or couldn't, said for a moment. */
     var toast by mutableStateOf<Toast?>(null)
 
@@ -435,7 +455,7 @@ private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: 
         }
     }
     Box(modifier.clipToBounds()) {
-        VideoSurface(Modifier.fillMaxSize().offset { IntOffset(0, hud.offset.roundToInt()) })
+        VideoSurface(hud, Modifier.fillMaxSize().offset { IntOffset(0, hud.offset.roundToInt()) })
         if (!chrome) return@Box
         // Over the video alone; read as it draws, so a slide doesn't recompose the controls.
         Spacer(
@@ -443,6 +463,9 @@ private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: 
                 if (hud.brightness < 1f) drawRect(Color.Black, alpha = (1f - hud.brightness) * MAX_DIM)
             },
         )
+        if (hud.seeking) {
+            Spacer(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black, alpha = 0.52f) })
+        }
         // Under the controls and below the top bar's row; it goes with the video as a swipe moves it.
         DanmakuLayer(
             Modifier.fillMaxSize().offset { IntOffset(0, hud.offset.roundToInt()) }
@@ -452,6 +475,7 @@ private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: 
         Gestures(hud, Modifier.fillMaxSize())
         PauseMark(Modifier.align(Alignment.Center))
         PlayerOverlay()
+        SeekPreview(hud, Modifier.align(Alignment.Center))
         if (hud.diagnosticsVisible) {
             PlaybackStatsOverlay(player, Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = if (landscape) 12.dp else 76.dp))
         }
@@ -486,20 +510,26 @@ private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: 
 
 /** VideoSurface shows the video, fitted to its frame, black around it. */
 @Composable
-private fun VideoSurface(modifier: Modifier) {
+private fun VideoSurface(hud: PlayerHud, modifier: Modifier) {
     val video = LocalVideo.current
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
                 useController = false
+                // TextureView supports small, real-frame previews while scrubbing.
+                useTextureView = true
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 setShutterBackgroundColor(android.graphics.Color.BLACK)
                 setBackgroundColor(android.graphics.Color.BLACK)
                 player = video.exo
+                hud.textureView = videoSurfaceView as? TextureView
             }
         },
         modifier = modifier,
-        onRelease = { it.player = null },
+        onRelease = {
+            if (hud.textureView === it.videoSurfaceView) hud.textureView = null
+            it.player = null
+        },
     )
 }
 
@@ -511,15 +541,13 @@ private sealed interface Touch {
 
 /**
  * Gestures reads the fingers on the video: a tap pauses, a swipe up or down
- * moves between episodes, one sideways sets the brightness or the volume,
- * and a press and hold plays at double speed.
+ * moves between episodes, one sideways adjusts brightness above or seeks
+ * below, and a press and hold plays at double speed.
  */
 @Composable
 private fun Gestures(hud: PlayerHud, modifier: Modifier) {
     val player = LocalModel.current.player
     val haptic = LocalHapticFeedback.current
-    val context = LocalContext.current
-    val audio = remember(context) { context.getSystemService(AudioManager::class.java) }
     val scope = rememberCoroutineScope()
     Box(
         modifier.pointerInput(Unit) {
@@ -547,8 +575,8 @@ private fun Gestures(hud: PlayerHud, modifier: Modifier) {
                         if (!hud.controlsVisible) hud.controlsVisible = true else player.togglePause()
                     }
                     touch is Touch.Moved && abs(touch.by.y) > abs(touch.by.x) -> swipe(down, player, hud, scope)
-                    down.position.x < size.width / 2 -> brighten(down, hud)
-                    audio != null -> louden(down, hud, audio)
+                    touch is Touch.Moved && down.position.y < size.height / 2f -> brighten(down, hud)
+                    touch is Touch.Moved -> seekHorizontally(down, player, hud, scope)
                     else -> untilUp(down)
                 }
                 } finally {
@@ -655,7 +683,7 @@ private suspend fun AwaitPointerEventScope.slid(down: PointerInputChange): Float
 }
 
 /**
- * Sliding sideways on the left half dims the video, or brings it back: to
+ * Sliding sideways in the upper half adjusts the picture brightness: to
  * the right is brighter, and a slide across the whole width goes from dark
  * to full.
  */
@@ -669,25 +697,90 @@ private suspend fun AwaitPointerEventScope.brighten(down: PointerInputChange, hu
 }
 
 /**
- * Sliding sideways on the right half sets the system's media volume, the
- * one its buttons set: to the right is louder, and a slide across the whole
- * width goes from silent to full.
+ * Horizontal swipes in the lower half scrub the episode. A full-screen-width
+ * drag spans the episode timeline; while dragging, the video pauses, seeks
+ * to preview real frames, and shows a centered thumbnail and progress line.
+ * Releasing resumes only if playback was running before the gesture.
  */
-private suspend fun AwaitPointerEventScope.louden(down: PointerInputChange, hud: PlayerHud, audio: AudioManager) {
-    val stream = AudioManager.STREAM_MUSIC
-    val min = audio.getStreamMinVolume(stream)
-    val max = audio.getStreamMaxVolume(stream)
-    if (max <= min || audio.isVolumeFixed) {
-        hud.say("这台设备的音量不能调")
+private suspend fun AwaitPointerEventScope.seekHorizontally(
+    down: PointerInputChange,
+    player: Player,
+    hud: PlayerHud,
+    scope: CoroutineScope,
+) {
+    val video = player.video
+    val duration = video.duration
+    if (!duration.isFinite() || duration <= 0.0) {
         untilUp(down)
         return
     }
-    val from = audio.getStreamVolume(stream)
-    while (true) {
-        val by = slid(down) ?: return
-        val to = (from + by * (max - min)).roundToInt().coerceIn(min, max)
-        if (to != audio.getStreamVolume(stream)) audio.setStreamVolume(stream, to, 0) // no system panel: the word on the video says it
-        hud.say("音量 ${(to - min) * 100 / (max - min)}%")
+
+    val initial = video.position.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+    val wasPlaying = video.wantsToPlay && !player.paused
+    val width = size.width.toFloat().coerceAtLeast(1f)
+    var target = initial
+    var lifted = false
+    var lastSeekAt = Long.MIN_VALUE
+
+    hud.seeking = true
+    hud.controlsVisible = true
+    hud.seekPreviewStart = initial
+    hud.seekPreviewPosition = initial
+    hud.seekPreviewDuration = duration
+    video.pause()
+
+    try {
+        while (true) {
+            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) {
+                lifted = true
+                break
+            }
+            change.consume()
+            val delta = (change.position.x - down.position.x) / width * duration
+            target = (initial + delta).coerceIn(0.0, duration)
+            hud.seekPreviewPosition = target
+
+            // Throttle decoder seeks while keeping the time/progress readout fluid.
+            if (lastSeekAt == Long.MIN_VALUE || change.uptimeMillis - lastSeekAt >= 140L) {
+                video.seek(target)
+                lastSeekAt = change.uptimeMillis
+                requestSeekPreviewFrame(hud, scope)
+            }
+        }
+    } finally {
+        video.seek(if (lifted) target else initial)
+        hud.seeking = false
+        val old = hud.seekPreviewBitmap
+        hud.seekPreviewBitmap = null
+        releasePreviewBitmap(old, scope)
+        if (wasPlaying) video.play()
+    }
+}
+
+/** Captures a small frame after ExoPlayer has had time to render the requested seek position. */
+private fun requestSeekPreviewFrame(hud: PlayerHud, scope: CoroutineScope) {
+    scope.launch {
+        delay(90)
+        val texture = hud.textureView ?: return@launch
+        if (!hud.seeking || !texture.isAvailable) return@launch
+        val frame = runCatching { texture.getBitmap(320, 180) }.getOrNull() ?: return@launch
+        if (hud.seeking) {
+            val old = hud.seekPreviewBitmap
+            hud.seekPreviewBitmap = frame
+            releasePreviewBitmap(old, scope)
+        } else {
+            frame.recycle()
+        }
+    }
+}
+
+/** Waits one frame before recycling so Compose cannot draw a recycled preview bitmap. */
+private fun releasePreviewBitmap(bitmap: Bitmap?, scope: CoroutineScope) {
+    if (bitmap == null) return
+    scope.launch {
+        withFrameMillis { }
+        if (!bitmap.isRecycled) bitmap.recycle()
     }
 }
 
@@ -1085,6 +1178,77 @@ private fun clock(s: Double): String {
     if (!s.isFinite() || s <= 0) return "0:00"
     val n = s.toInt()
     return "%d:%02d".format(n / 60, n % 60)
+}
+
+/** Redfruit-style centre preview while seeking: captured frame, direction, time, and progress. */
+@Composable
+private fun SeekPreview(hud: PlayerHud, modifier: Modifier) {
+    if (!hud.seeking) return
+
+    val duration = hud.seekPreviewDuration.coerceAtLeast(0.0)
+    val position = hud.seekPreviewPosition.coerceIn(0.0, duration)
+    val delta = position - hud.seekPreviewStart
+    val fraction = if (duration > 0.0) (position / duration).coerceIn(0.0, 1.0).toFloat() else 0f
+
+    Column(
+        modifier.widthIn(max = 260.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xE6111111))
+            .padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            (if (delta >= 0.0) "快进 " else "后退 ") + clock(kotlin.math.abs(delta)),
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(
+            Modifier.fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF242424)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val bitmap = hud.seekPreviewBitmap
+            if (bitmap != null && !bitmap.isRecycled) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "拖动进度预览画面",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Icon(
+                    if (delta >= 0.0) Icons.Filled.FastForward else Icons.Filled.Replay10,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.75f),
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(
+            Modifier.fillMaxWidth()
+                .height(4.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.24f)),
+        ) {
+            Box(
+                Modifier.fillMaxWidth(fraction)
+                    .fillMaxHeight()
+                    .background(Color(0xFFFF4242)),
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(clock(position), color = Color.White, style = MaterialTheme.typography.labelSmall)
+            Text(clock(duration), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+        }
+    }
 }
 
 /** ProgressBar is how far the episode has got, along the bottom of the video; dragging along it moves there. */
