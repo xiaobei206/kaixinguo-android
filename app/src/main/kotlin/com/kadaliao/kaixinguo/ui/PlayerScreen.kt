@@ -39,6 +39,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -517,7 +518,7 @@ private fun VideoSurface(hud: PlayerHud, modifier: Modifier) {
             PlayerView(ctx).apply {
                 useController = false
                 // TextureView supports small, real-frame previews while scrubbing.
-                useTextureView = true
+                setUseTextureView(true)
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 setShutterBackgroundColor(android.graphics.Color.BLACK)
                 setBackgroundColor(android.graphics.Color.BLACK)
