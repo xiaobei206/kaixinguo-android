@@ -22,8 +22,9 @@ sealed interface UpdateUiState {
     data class Available(val info: UpdateInfo) : UpdateUiState
     data class Downloading(val info: UpdateInfo, val progress: Int) : UpdateUiState
     data class AwaitingPermission(val info: UpdateInfo) : UpdateUiState
-    data class Installing(val info: UpdateInfo) : UpdateUiState
-    data class Failed(val info: UpdateInfo, val message: String) : UpdateUiState
+    data class Installing(val info: UpdateInfo, val sessionId: Int? = null) : UpdateUiState
+    data class AwaitingConfirmation(val info: UpdateInfo, val sessionId: Int) : UpdateUiState
+    data class Failed(val info: UpdateInfo, val message: String, val sessionId: Int? = null) : UpdateUiState
 }
 
 @Composable
@@ -38,9 +39,12 @@ fun UpdateDialog(
         is UpdateUiState.Downloading -> state.info
         is UpdateUiState.AwaitingPermission -> state.info
         is UpdateUiState.Installing -> state.info
+        is UpdateUiState.AwaitingConfirmation -> state.info
         is UpdateUiState.Failed -> state.info
     }
-    val busy = state is UpdateUiState.Downloading || state is UpdateUiState.Installing
+    val busy = state is UpdateUiState.Downloading ||
+        state is UpdateUiState.Installing ||
+        state is UpdateUiState.AwaitingConfirmation
     AlertDialog(
         onDismissRequest = { if (!busy) onCancel() },
         title = { Text("红果去广有新版本") },
@@ -62,8 +66,11 @@ fun UpdateDialog(
                     is UpdateUiState.AwaitingPermission -> Text("首次安装更新需要允许「红果去广」安装未知应用。开启后返回应用即可继续。")
                     is UpdateUiState.Installing -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         CircularProgressIndicator()
-                        Text("下载与校验完成，正在提交系统安装。")
+                        Text("下载与校验完成，正在提交系统安装，等待 Android 返回安装结果。")
                     }
+                    is UpdateUiState.AwaitingConfirmation -> Text(
+                        "已打开系统安装确认页面，请在系统页面完成安装。返回应用后会显示最终结果。"
+                    )
                     is UpdateUiState.Failed -> Text("更新失败：${state.message}")
                 }
             }
@@ -71,7 +78,7 @@ fun UpdateDialog(
         confirmButton = {
             when (state) {
                 is UpdateUiState.Available -> Button(onClick = { onUpdate(info) }) { Text("立即更新") }
-                is UpdateUiState.Failed -> Button(onClick = { onRetry(info) }) { Text("重试") }
+                is UpdateUiState.Failed -> Button(onClick = { onRetry(info) }) { Text("重试安装") }
                 is UpdateUiState.AwaitingPermission -> Button(onClick = { onUpdate(info) }) { Text("打开授权设置") }
                 else -> {}
             }

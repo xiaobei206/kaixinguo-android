@@ -25,11 +25,18 @@ data class UpdateInfo(
     val sha256: String,
 )
 
+data class UpdateInstallStatus(val status: Int, val message: String)
+
 object AppUpdater {
     private const val REPO = "xiaobei206/kaixinguo-android"
     private const val API_LATEST = "https://api.github.com/repos/$REPO/releases/latest"
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 20_000
+    private const val INSTALL_STATUS_PREFS = "update_install_status"
+
+    const val ACTION_INSTALL_STATE_CHANGED = "com.kadaliao.kaixinguo.UPDATE_INSTALL_STATE_CHANGED"
+    const val EXTRA_INSTALL_STATUS = "install_status"
+    const val EXTRA_INSTALL_MESSAGE = "install_message"
 
     suspend fun check(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
         val release = getJson(API_LATEST)
@@ -88,8 +95,37 @@ object AppUpdater {
         )
     }
 
+    /**
+     * Returns a cached APK only when it still matches the release's published digest.
+     * This lets an install retry reuse a verified download without trusting stale cache files.
+     */
+    suspend fun findVerifiedCachedApk(context: Context, info: UpdateInfo): File? =
+        withContext(Dispatchers.IO) {
+            val target = File(File(context.cacheDir, "updates"), info.apkName)
+            if (!target.isFile || target.length() <= 0L) return@withContext null
+            if (!sha256(target).equals(info.sha256, ignoreCase = true)) {
+                target.delete()
+                return@withContext null
+            }
+            target
+        }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     suspend fun download(context: Context, info: UpdateInfo, onProgress: (Int) -> Unit): File =
         withContext(Dispatchers.IO) {
+            findVerifiedCachedApk(context, info)?.let { return@withContext it }
             val folder = File(context.cacheDir, "updates").apply { mkdirs() }
             val target = File(folder, info.apkName)
             val partial = File(folder, info.apkName + ".part")
@@ -120,17 +156,10 @@ object AppUpdater {
                         }
                     }
                 }
-                val digest = MessageDigest.getInstance("SHA-256")
-                partial.inputStream().buffered().use { input ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        coroutineContext.ensureActive()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        digest.update(buffer, 0, count)
-                    }
+                if (total > 0L && received != total) {
+                    error("下载不完整：收到 $received / $total 字节")
                 }
-                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                val actual = sha256(partial)
                 check(actual.equals(info.sha256, ignoreCase = true)) { "安装包 SHA-256 校验失败，已取消安装" }
                 target.delete()
                 check(partial.renameTo(target)) { "无法保存已校验的安装包" }
@@ -143,7 +172,7 @@ object AppUpdater {
             }
         }
 
-    fun install(context: Context, apk: File) {
+    fun install(context: Context, apk: File): Int {
         check(apk.isFile && apk.length() > 0L) { "安装包不存在或为空" }
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
@@ -174,6 +203,47 @@ object AppUpdater {
             runCatching { installer.abandonSession(sessionId) }
             throw e
         }
+        return sessionId
+    }
+
+    fun readInstallStatus(context: Context, sessionId: Int): UpdateInstallStatus? {
+        val prefs = context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE)
+        val key = "status_$sessionId"
+        if (!prefs.contains(key)) return null
+        return UpdateInstallStatus(
+            status = prefs.getInt(key, PackageInstaller.STATUS_FAILURE),
+            message = prefs.getString("message_$sessionId", "").orEmpty(),
+        )
+    }
+
+    /** Persists the system callback before notifying the foreground Activity. */
+    fun recordInstallStatus(context: Context, sessionId: Int, status: Int, message: String) {
+        if (sessionId < 0) return
+        context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE).edit()
+            .putInt("status_$sessionId", status)
+            .putString("message_$sessionId", message)
+            .commit()
+
+        context.sendBroadcast(
+            Intent(ACTION_INSTALL_STATE_CHANGED)
+                .setPackage(context.packageName)
+                .putExtra(UpdateInstallReceiver.EXTRA_SESSION_ID, sessionId)
+                .putExtra(EXTRA_INSTALL_STATUS, status)
+                .putExtra(EXTRA_INSTALL_MESSAGE, message),
+        )
+    }
+
+    fun installFailureMessage(status: Int, message: String): String {
+        val reason = when (status) {
+            PackageInstaller.STATUS_FAILURE_ABORTED -> "系统安装已取消"
+            PackageInstaller.STATUS_FAILURE_BLOCKED -> "系统阻止安装"
+            PackageInstaller.STATUS_FAILURE_CONFLICT -> "与已安装版本冲突"
+            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "安装包与设备不兼容"
+            PackageInstaller.STATUS_FAILURE_INVALID -> "安装包无效"
+            PackageInstaller.STATUS_FAILURE_STORAGE -> "存储空间不足"
+            else -> "系统安装失败"
+        }
+        return if (message.isBlank()) "$reason（状态码 $status）" else "$reason：$message（状态码 $status）"
     }
 
 

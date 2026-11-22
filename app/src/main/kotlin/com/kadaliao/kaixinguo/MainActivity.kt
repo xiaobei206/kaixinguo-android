@@ -1,14 +1,19 @@
 package com.kadaliao.kaixinguo
 
 import android.app.PictureInPictureParams
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.util.Log
 import android.util.Rational
 import android.provider.Settings
 import android.widget.Toast
@@ -18,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -38,10 +44,13 @@ import com.kadaliao.kaixinguo.ui.Route
 import com.kadaliao.kaixinguo.update.AppUpdater
 import com.kadaliao.kaixinguo.update.UpdateDialog
 import com.kadaliao.kaixinguo.update.UpdateInfo
+import com.kadaliao.kaixinguo.update.UpdateInstallReceiver
 import com.kadaliao.kaixinguo.update.UpdateUiState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * MainActivity is the app's one window. It opens `kaixinguo://` links,
@@ -50,6 +59,11 @@ import kotlinx.coroutines.launch
  * when they come back.
  */
 class MainActivity : ComponentActivity() {
+    companion object {
+        // Survives Activity recreation, but resets after process death so restored tasks still auto-check.
+        private var automaticUpdateCheckStarted = false
+    }
+
     private val app get() = application as KaixinguoApplication
     private var inPip by mutableStateOf(false)
     private var updateState by mutableStateOf<UpdateUiState?>(null)
@@ -57,6 +71,17 @@ class MainActivity : ComponentActivity() {
     private var updateJob: Job? = null
     private var pipWanted = false
     private var controller: ListenableFuture<MediaController>? = null
+    private var installStateReceiverRegistered = false
+    private val installStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != AppUpdater.ACTION_INSTALL_STATE_CHANGED) return
+            handleInstallStatus(
+                sessionId = intent.getIntExtra(UpdateInstallReceiver.EXTRA_SESSION_ID, -1),
+                status = intent.getIntExtra(AppUpdater.EXTRA_INSTALL_STATUS, PackageInstaller.STATUS_FAILURE),
+                message = intent.getStringExtra(AppUpdater.EXTRA_INSTALL_MESSAGE).orEmpty(),
+            )
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -79,13 +104,17 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (model == null) return
+        registerInstallStateReceiver()
         // The launch's first window reopens the player where the viewer
         // left it, unless a link says where to go.
         val link = if (savedInstanceState == null) intent?.data?.takeIf { it.scheme == "kaixinguo" } else null
         model.reopenPlayer(open = link == null)
         link?.let { open(it, model) }
         // Picture in picture follows the episode: on while it plays.
-        if (savedInstanceState == null) checkForUpdate(showFeedback = false)
+        if (!automaticUpdateCheckStarted) {
+            automaticUpdateCheckStarted = true
+            checkForUpdate(showFeedback = false)
+        }
         lifecycleScope.launch {
             snapshotFlow {
                 val p = model.player
@@ -104,6 +133,35 @@ class MainActivity : ComponentActivity() {
         if (awaiting != null && AppUpdater.canInstallPackages(this)) {
             startDownloadAndInstall(awaiting.info)
         }
+        val sessionId = when (val state = updateState) {
+            is UpdateUiState.Installing -> state.sessionId
+            is UpdateUiState.AwaitingConfirmation -> state.sessionId
+            else -> null
+        }
+        if (sessionId != null) {
+            AppUpdater.readInstallStatus(this, sessionId)?.let {
+                handleInstallStatus(sessionId, it.status, it.message)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        if (installStateReceiverRegistered) {
+            unregisterReceiver(installStateReceiver)
+            installStateReceiverRegistered = false
+        }
+        super.onDestroy()
+    }
+
+    private fun registerInstallStateReceiver() {
+        if (installStateReceiverRegistered) return
+        ContextCompat.registerReceiver(
+            this,
+            installStateReceiver,
+            IntentFilter(AppUpdater.ACTION_INSTALL_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        installStateReceiverRegistered = true
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -176,23 +234,67 @@ class MainActivity : ComponentActivity() {
             try {
                 val info = AppUpdater.check(this@MainActivity)
                 if (info != null) {
+                    Log.i("HongguoQuGuangUpdater", "Update available: ${info.versionName} (${info.versionCode})")
                     updateState = UpdateUiState.Available(info)
                 } else if (showFeedback) {
+                    Log.i("HongguoQuGuangUpdater", "Manual update check: already latest")
                     Toast.makeText(this@MainActivity, "当前已经是最新版本", Toast.LENGTH_LONG).show()
+                } else {
+                    Log.i("HongguoQuGuangUpdater", "Automatic update check completed; no newer release found")
                 }
             } catch (e: CancellationException) {
+                if (!showFeedback) automaticUpdateCheckStarted = false
                 throw e
             } catch (e: Exception) {
-                if (showFeedback) {
-                    val message = e.message?.take(100).orEmpty()
-                    Toast.makeText(
-                        this@MainActivity,
-                        if (message.isBlank()) "检查更新失败，请检查网络" else "检查更新失败：$message",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
+                Log.w("HongguoQuGuangUpdater", "Update check failed (manual=$showFeedback)", e)
+                val message = e.message?.take(100).orEmpty()
+                Toast.makeText(
+                    this@MainActivity,
+                    if (showFeedback) {
+                        if (message.isBlank()) "检查更新失败，请检查网络" else "检查更新失败：$message"
+                    } else {
+                        if (message.isBlank()) "自动检查更新失败，请检查网络" else "自动检查更新失败：$message"
+                    },
+                    Toast.LENGTH_LONG,
+                ).show()
             } finally {
                 updateCheckInProgress = false
+            }
+        }
+    }
+
+    private fun handleInstallStatus(sessionId: Int, status: Int, message: String) {
+        if (sessionId < 0) return
+        val current = updateState ?: return
+        val info = when (current) {
+            is UpdateUiState.Installing -> {
+                if (current.sessionId != null && current.sessionId != sessionId) return
+                current.info
+            }
+            is UpdateUiState.AwaitingConfirmation -> {
+                if (current.sessionId != sessionId) return
+                current.info
+            }
+            is UpdateUiState.Failed -> {
+                if (current.sessionId != null && current.sessionId != sessionId) return
+                current.info
+            }
+            else -> return
+        }
+
+        when (status) {
+            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                updateState = UpdateUiState.AwaitingConfirmation(info, sessionId)
+                Log.i("HongguoQuGuangUpdater", "Waiting for system install confirmation; sessionId=$sessionId")
+            }
+            PackageInstaller.STATUS_SUCCESS -> {
+                updateState = null
+                Log.i("HongguoQuGuangUpdater", "Package update completed; sessionId=$sessionId")
+            }
+            else -> {
+                val detail = AppUpdater.installFailureMessage(status, message)
+                updateState = UpdateUiState.Failed(info, detail, sessionId)
+                Log.w("HongguoQuGuangUpdater", "Package update failed; sessionId=$sessionId detail=$detail")
             }
         }
     }
@@ -216,8 +318,11 @@ class MainActivity : ComponentActivity() {
         if (updateJob?.isActive == true) return
         updateState = UpdateUiState.Downloading(info, 0)
         updateJob = lifecycleScope.launch {
+            var sessionId: Int? = null
             try {
-                val apk = AppUpdater.download(this@MainActivity, info) { progress ->
+                // Reuse the APK after a prior install failure when its published digest still matches.
+                val cached = AppUpdater.findVerifiedCachedApk(this@MainActivity, info)
+                val apk = cached ?: AppUpdater.download(this@MainActivity, info) { progress ->
                     runOnUiThread {
                         if (updateState is UpdateUiState.Downloading) {
                             updateState = UpdateUiState.Downloading(info, progress)
@@ -225,12 +330,24 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 updateState = UpdateUiState.Installing(info)
-                AppUpdater.install(this@MainActivity, apk)
-                updateState = null
+                // Copying a full APK into PackageInstaller can be slow; keep disk I/O off the UI thread.
+                val committedSessionId = withContext(Dispatchers.IO) {
+                    AppUpdater.install(this@MainActivity, apk)
+                }
+                sessionId = committedSessionId
+                val current = updateState
+                if (current is UpdateUiState.Installing && current.sessionId == null) {
+                    updateState = current.copy(sessionId = committedSessionId)
+                }
+                // The system can report a status before install() returns; reconcile that race.
+                AppUpdater.readInstallStatus(this@MainActivity, committedSessionId)?.let {
+                    handleInstallStatus(committedSessionId, it.status, it.message)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                updateState = UpdateUiState.Failed(info, e.message ?: "未知错误")
+                Log.e("HongguoQuGuangUpdater", "Download or install submission failed", e)
+                updateState = UpdateUiState.Failed(info, e.message ?: "未知错误", sessionId)
             }
         }
     }
