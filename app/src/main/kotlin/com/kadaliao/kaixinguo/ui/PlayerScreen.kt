@@ -4,6 +4,8 @@ package com.kadaliao.kaixinguo.ui
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.content.ClipData
@@ -12,7 +14,8 @@ import android.content.Context
 import android.widget.Toast as AndroidToast
 import android.provider.Settings
 import android.view.OrientationEventListener
-import android.view.TextureView
+import android.view.PixelCopy
+import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
@@ -420,9 +423,10 @@ private class PlayerHud {
 
     /** A small captured video frame shown while scrubbing. */
     var seekPreviewBitmap by mutableStateOf<Bitmap?>(null)
+    var seekPreviewRequestId by mutableLongStateOf(0L)
 
-    /** PlayerView's TextureView lets the scrubber capture a real frame at the target time. */
-    var textureView: TextureView? = null
+    /** PlayerView's SurfaceView lets PixelCopy capture the rendered video frame at the target time. */
+    var surfaceView: SurfaceView? = null
 
     /** What the last gesture did, or couldn't, said for a moment. */
     var toast by mutableStateOf<Toast?>(null)
@@ -517,18 +521,16 @@ private fun VideoSurface(hud: PlayerHud, modifier: Modifier) {
         factory = { ctx ->
             PlayerView(ctx).apply {
                 useController = false
-                // TextureView supports small, real-frame previews while scrubbing.
-                setUseTextureView(true)
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 setShutterBackgroundColor(android.graphics.Color.BLACK)
                 setBackgroundColor(android.graphics.Color.BLACK)
                 player = video.exo
-                hud.textureView = videoSurfaceView as? TextureView
+                hud.surfaceView = videoSurfaceView as? SurfaceView
             }
         },
         modifier = modifier,
         onRelease = {
-            if (hud.textureView === it.videoSurfaceView) hud.textureView = null
+            if (hud.surfaceView === it.videoSurfaceView) hud.surfaceView = null
             it.player = null
         },
     )
@@ -752,6 +754,7 @@ private suspend fun AwaitPointerEventScope.seekHorizontally(
     } finally {
         video.seek(if (lifted) target else initial)
         hud.seeking = false
+        hud.seekPreviewRequestId += 1L // invalidate any frame capture still in flight
         val old = hud.seekPreviewBitmap
         hud.seekPreviewBitmap = null
         releasePreviewBitmap(old, scope)
@@ -759,20 +762,35 @@ private suspend fun AwaitPointerEventScope.seekHorizontally(
     }
 }
 
-/** Captures a small frame after ExoPlayer has had time to render the requested seek position. */
+/** Captures a small real frame from PlayerView's SurfaceView after a seek has rendered. */
 private fun requestSeekPreviewFrame(hud: PlayerHud, scope: CoroutineScope) {
+    val requestId = ++hud.seekPreviewRequestId
     scope.launch {
-        delay(90)
-        val texture = hud.textureView ?: return@launch
-        if (!hud.seeking || !texture.isAvailable) return@launch
-        val frame = runCatching { texture.getBitmap(320, 180) }.getOrNull() ?: return@launch
-        if (hud.seeking) {
-            val old = hud.seekPreviewBitmap
-            hud.seekPreviewBitmap = frame
-            releasePreviewBitmap(old, scope)
-        } else {
-            frame.recycle()
+        delay(110)
+        val surface = hud.surfaceView ?: return@launch
+        if (!hud.seeking || !surface.isAttachedToWindow || surface.width <= 0 || surface.height <= 0) return@launch
+
+        // Keep the captured bitmap's aspect ratio: portrait shorts stay portrait, landscape stays landscape.
+        val aspect = surface.width.toFloat() / surface.height.toFloat()
+        val bitmapWidth = if (aspect >= 1f) 320 else (320 * aspect).roundToInt().coerceAtLeast(1)
+        val bitmapHeight = if (aspect >= 1f) (320 / aspect).roundToInt().coerceAtLeast(1) else 320
+        val frame = runCatching {
+            Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+        }.getOrNull() ?: return@launch
+
+        val callback = PixelCopy.OnPixelCopyFinishedListener { result ->
+            if (result == PixelCopy.SUCCESS && hud.seeking && hud.seekPreviewRequestId == requestId) {
+                val old = hud.seekPreviewBitmap
+                hud.seekPreviewBitmap = frame
+                releasePreviewBitmap(old, scope)
+            } else if (!frame.isRecycled) {
+                frame.recycle()
+            }
         }
+        val requested = runCatching {
+            PixelCopy.request(surface, frame, callback, Handler(Looper.getMainLooper()))
+        }.isSuccess
+        if (!requested && !frame.isRecycled) frame.recycle()
     }
 }
 
@@ -1207,7 +1225,7 @@ private fun SeekPreview(hud: PlayerHud, modifier: Modifier) {
         Spacer(Modifier.height(8.dp))
         Box(
             Modifier.fillMaxWidth()
-                .aspectRatio(16f / 9f)
+                .aspectRatio(if (LocalModel.current.player.wide) 16f / 9f else 9f / 16f)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF242424)),
             contentAlignment = Alignment.Center,
