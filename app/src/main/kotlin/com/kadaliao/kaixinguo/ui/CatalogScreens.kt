@@ -70,7 +70,11 @@ import com.kadaliao.kaixinguo.model.friendly
 import com.kadaliao.kaixinguo.model.todayKey
 import com.kadaliao.kaixinguo.MainActivity
 import com.kadaliao.kaixinguo.cast.PhoneDiagnosticReport
+import com.kadaliao.kaixinguo.cast.TvHandoffResultRecord
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** DiscoverScreen is the recommended series. */
 @Composable
@@ -241,6 +245,14 @@ fun MineScreen() {
     var receivingDiagnostics by remember { mutableStateOf(activity?.isDiagnosticReceiverEnabled() == true) }
     var inboxOpen by remember { mutableStateOf(false) }
     var inbox by remember { mutableStateOf(emptyList<PhoneDiagnosticReport>()) }
+    var lastTvHandoff by remember { mutableStateOf(TvHandoffResultRecord.load(context)) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            lastTvHandoff = TvHandoffResultRecord.load(context)
+            delay(1_200)
+        }
+    }
 
     Page(
         title = "我的",
@@ -283,6 +295,39 @@ fun MineScreen() {
         },
     ) {
         CardGrid {
+            lastTvHandoff?.let { result ->
+                line("tv-handoff-status") {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                        Text(
+                            "最近一次电视接力",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            when {
+                                result.success -> "投屏成功 · 电视已确认开始播放"
+                                result.outcomeUnknown -> "接力状态未知 · 尚未收到电视确认"
+                                else -> "投屏未成功",
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = when {
+                                result.success -> MaterialTheme.colorScheme.primary
+                                result.outcomeUnknown -> MaterialTheme.colorScheme.onSurfaceVariant
+                                else -> MaterialTheme.colorScheme.error
+                            },
+                        )
+                        Text("${result.deviceName} · 第 ${result.episode} 集", style = MaterialTheme.typography.bodyMedium)
+                        if (result.message.isNotBlank()) {
+                            Text(result.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text(
+                            SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(result.completedAt)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             if (watched.isNotEmpty()) {
                 line("watched-title") { SectionTitle("最近观看") }
                 line("watched") {

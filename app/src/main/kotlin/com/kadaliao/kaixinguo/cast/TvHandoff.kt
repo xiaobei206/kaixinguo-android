@@ -70,6 +70,66 @@ data class TvHandoffPayload(
 
 data class TvHandoffResponse(val accepted: Boolean, val message: String)
 
+/** Latest TV handoff result, persisted so the user can verify it after the chooser closes. */
+data class TvHandoffResultRecord(
+    val deviceName: String,
+    val seriesId: String,
+    val episode: Int,
+    val success: Boolean,
+    val outcomeUnknown: Boolean,
+    val message: String,
+    val completedAt: Long,
+) {
+    companion object {
+        private const val PREFS = "tv_handoff_result"
+
+        fun save(
+            context: Context,
+            deviceName: String,
+            payload: TvHandoffPayload,
+            success: Boolean,
+            outcomeUnknown: Boolean,
+            message: String,
+        ): TvHandoffResultRecord {
+            val record = TvHandoffResultRecord(
+                deviceName = deviceName.ifBlank { "电视" },
+                seriesId = payload.seriesId,
+                episode = payload.episode,
+                success = success,
+                outcomeUnknown = outcomeUnknown,
+                message = message.ifBlank { if (success) "电视已确认开始播放" else "交接失败" },
+                completedAt = System.currentTimeMillis(),
+            )
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString("device_name", record.deviceName)
+                .putString("series_id", record.seriesId)
+                .putInt("episode", record.episode)
+                .putBoolean("success", record.success)
+                .putBoolean("outcome_unknown", record.outcomeUnknown)
+                .putString("message", record.message)
+                .putLong("completed_at", record.completedAt)
+                .apply()
+            return record
+        }
+
+        fun load(context: Context): TvHandoffResultRecord? {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val seriesId = prefs.getString("series_id", null)?.takeIf { it.isNotBlank() } ?: return null
+            val episode = prefs.getInt("episode", 0).takeIf { it > 0 } ?: return null
+            val completedAt = prefs.getLong("completed_at", 0L).takeIf { it > 0L } ?: return null
+            return TvHandoffResultRecord(
+                deviceName = prefs.getString("device_name", "电视").orEmpty().ifBlank { "电视" },
+                seriesId = seriesId,
+                episode = episode,
+                success = prefs.getBoolean("success", false),
+                outcomeUnknown = prefs.getBoolean("outcome_unknown", false),
+                message = prefs.getString("message", "").orEmpty(),
+                completedAt = completedAt,
+            )
+        }
+    }
+}
+
 class TvHandoffException(
     message: String,
     val outcomeUnknown: Boolean,

@@ -175,22 +175,50 @@ fun TvHandoffButton(model: AppModel, modifier: Modifier = Modifier) {
                                                 try {
                                                     val response = TvHandoffClient.send(device, payload)
                                                     if (response.accepted) {
+                                                        TvHandoffResultRecord.save(
+                                                            context, device.displayName, payload,
+                                                            success = true, outcomeUnknown = false,
+                                                            message = response.message.ifBlank { "电视已确认开始播放" },
+                                                        )
                                                         if (active) {
                                                             player.leave()
                                                             application.saveSession()
                                                         }
-                                                        Toast.makeText(context, "已交给${device.displayName}播放", Toast.LENGTH_LONG).show()
+                                                        val title = model.history.get(payload.seriesId)?.title.orEmpty()
+                                                        val item = title.ifBlank { "第 ${payload.episode} 集" }
+                                                        Toast.makeText(
+                                                            context,
+                                                            "投屏成功：${device.displayName} 已确认开始播放（$item）",
+                                                            Toast.LENGTH_LONG,
+                                                        ).show()
                                                         showDialog = false
                                                     } else {
+                                                        TvHandoffResultRecord.save(
+                                                            context, device.displayName, payload,
+                                                            success = false, outcomeUnknown = false,
+                                                            message = response.message,
+                                                        )
                                                         if (resumeOnFailure) player.video.play()
                                                         error = response.message
                                                     }
                                                 } catch (e: TvHandoffException) {
+                                                    val message = e.message ?: "交接失败"
+                                                    TvHandoffResultRecord.save(
+                                                        context, device.displayName, payload,
+                                                        success = false, outcomeUnknown = e.outcomeUnknown,
+                                                        message = message,
+                                                    )
                                                     if (!e.outcomeUnknown && resumeOnFailure) player.video.play()
-                                                    error = e.message ?: "交接失败"
+                                                    error = message
                                                 } catch (e: Exception) {
+                                                    val message = e.message ?: "交接失败"
+                                                    TvHandoffResultRecord.save(
+                                                        context, device.displayName, payload,
+                                                        success = false, outcomeUnknown = false,
+                                                        message = message,
+                                                    )
                                                     if (resumeOnFailure) player.video.play()
-                                                    error = e.message ?: "交接失败"
+                                                    error = message
                                                 } finally {
                                                     sending = false
                                                 }
