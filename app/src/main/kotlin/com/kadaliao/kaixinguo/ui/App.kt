@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Home
@@ -119,6 +121,12 @@ fun App(model: AppModel, router: Router, covers: CoverStore, video: ExoVideo, in
             ) {
                 PlayerScreen(inPip)
             }
+            TvHandoffButton(
+                model = model,
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(end = 8.dp, top = 4.dp),
+            )
         }
         BackHandler(enabled = !player.isPresented && router.canGoBack) { router.back() }
     }
