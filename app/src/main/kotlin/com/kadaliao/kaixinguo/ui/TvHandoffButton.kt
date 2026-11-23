@@ -39,6 +39,7 @@ import com.kadaliao.kaixinguo.cast.TvDiscovery
 import com.kadaliao.kaixinguo.cast.TvHandoffClient
 import com.kadaliao.kaixinguo.cast.TvHandoffException
 import com.kadaliao.kaixinguo.cast.TvHandoffPayload
+import com.kadaliao.kaixinguo.cast.TvHandoffResultRecord
 import com.kadaliao.kaixinguo.model.AppModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

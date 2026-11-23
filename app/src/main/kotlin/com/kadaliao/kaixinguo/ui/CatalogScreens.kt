@@ -307,7 +307,7 @@ fun MineScreen() {
                             when {
                                 result.success -> "投屏成功 · 电视已确认开始播放"
                                 result.outcomeUnknown -> "接力状态未知 · 尚未收到电视确认"
-                                else -> "投屏未成功",
+                                else -> "投屏未成功"
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = when {
