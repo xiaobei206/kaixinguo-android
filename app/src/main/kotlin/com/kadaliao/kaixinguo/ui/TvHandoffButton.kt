@@ -60,6 +60,16 @@ fun TvHandoffButton(model: AppModel, modifier: Modifier = Modifier) {
         onDispose { discovery.stop() }
     }
 
+    LaunchedEffect(showDialog, scanning) {
+        if (showDialog && scanning) {
+            delay(7_000)
+            scanning = false
+            if (devices.isEmpty()) {
+                error = "暂时没有发现电视。请确认 hongguoTV 已打开，并检查手机和电视是否连接同一个 Wi-Fi。"
+            }
+        }
+    }
+
     LaunchedEffect(model) {
         while (true) {
             val player = model.player
