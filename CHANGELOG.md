@@ -7,6 +7,7 @@
 - 更新 V5 Medusa Protobuf envelope：加入 25 位 `sec_device_token`、设备子消息字段与外层 field 16，并同步新版 flags、环境信息和 envelope 常量
 - 设备注册响应可选提取 `klink_egdi`，保存到原匿名设备档案，并带入主 V5 与 `video_tab` 签名查询
 - 播放前对新注册及旧版已保存设备执行一次 best-effort `app_alert_check` 激活；激活失败不清除匿名身份，也不阻断备用播放路线
+- 旧匿名档案缺少 `klink_egdi` 或距上次刷新达到 6 小时时，使用原 `device_id + install_id` 执行 `device_register` 心跳回填；仅接受 ID 完全一致的响应，失败或不匹配保留原档案，并设置 30 分钟重试间隔
 - 补全 `video_tab` 备用 GET 的移动端参数字段与官方参数顺序（包含 `manifest_version_code`、`pv_player`、`rom_version` 等），保留既有 7.4.5.32 专用参数档位和同一匿名设备标识
 
 ### 诊断与兼容
