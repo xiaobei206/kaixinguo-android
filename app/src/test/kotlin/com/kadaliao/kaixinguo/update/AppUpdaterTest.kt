@@ -11,7 +11,7 @@ class AppUpdaterTest {
     fun apkDownloadsUseTheCustomMirrorRootAndKeepVersionedNames() {
         assertEquals(
             "https://h.henhei.win/kaixinguo-android-v0.4.27-arm64-v8a.apk",
-            AppUpdater.mirrorApkUrl("kaixinguo-android-v0.4.21-arm64-v8a.apk"),
+            AppUpdater.mirrorApkUrl("kaixinguo-android-v0.4.27-arm64-v8a.apk"),
         )
     }
 
