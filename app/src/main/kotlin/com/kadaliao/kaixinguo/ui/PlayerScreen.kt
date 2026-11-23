@@ -198,8 +198,8 @@ import kotlin.math.roundToInt
 
 /**
  * PlayerScreen is the episode playing, its video filling the screen: what
- * plays and how fast above it, the episodes below it on phones and beside
- * it on tablets. Swiping up goes on to the next episode, and down back to
+ * plays and how fast above it, the episodes below it on phones and, when
+ * requested, beside it on tablets. Swiping up goes on to the next episode, and down back to
  * the one before; upper-half horizontal swipes set brightness, while
  * lower-half horizontal swipes seek backward or forward. In picture in picture
  * only the video shows.
@@ -210,8 +210,10 @@ fun PlayerScreen(inPip: Boolean) {
     val player = model.player
     val video = player.video
     val config = LocalConfiguration.current
-    val landscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE && config.screenHeightDp < 500 // a phone on its side: the video alone
-    val panel = !landscape && config.screenWidthDp >= 600
+    val tablet = config.smallestScreenWidthDp >= 600
+    val landscape = !tablet && config.orientation == Configuration.ORIENTATION_LANDSCAPE && config.screenHeightDp < 500 // a phone on its side: the video alone
+    val panel = tablet
+    var showTabletEpisodes by rememberSaveable { mutableStateOf(false) }
     var showEpisodes by remember { mutableStateOf(false) }
     var searching by remember { mutableStateOf(false) }
     var resumeAfterSearch by remember { mutableStateOf(false) }
@@ -223,6 +225,7 @@ fun PlayerScreen(inPip: Boolean) {
     LaunchedEffect(player.number) {
         hud.controlsVisible = true
         hud.controlsPinned = false
+        if (panel) showTabletEpisodes = false
     }
 
     // Pauses the episode for a search, to go on with it after.
@@ -240,7 +243,7 @@ fun PlayerScreen(inPip: Boolean) {
 
     BackHandler(enabled = !inPip) { if (searching) closeSearch(null) else player.leave() }
     PlayerWindow(
-        hideBars = landscape || inPip,
+        hideBars = landscape || inPip || (panel && !showTabletEpisodes),
         keepOn = !player.paused && (player.state == PlayerState.Playing || player.state == PlayerState.Buffering),
     )
     PlayerTheme {
@@ -255,14 +258,15 @@ fun PlayerScreen(inPip: Boolean) {
             // surface, as the device turns or picture in picture starts.
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                    VideoArea(hud, edge = landscape || panel, chrome = !inPip, rotation = rotation, landscape = landscape, search = ::openSearch, modifier = Modifier.weight(1f).fillMaxWidth())
+                    VideoArea(hud, edge = landscape || panel, chrome = !inPip, rotation = rotation, landscape = landscape, search = ::openSearch, tabletEpisodesVisible = showTabletEpisodes, toggleTabletEpisodes = if (panel) ({ showTabletEpisodes = !showTabletEpisodes }) else null, modifier = Modifier.weight(1f).fillMaxWidth())
                     if (!inPip && !landscape && !panel) EpisodeBar { showEpisodes = true }
                 }
-                if (!inPip && panel) {
+                if (!inPip && panel && showTabletEpisodes) {
                     EpisodePanel(
                         Modifier.width(320.dp).fillMaxHeight().background(Color(0xFF171717))
                             .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Vertical + WindowInsetsSides.End)),
                         steps = true,
+                        picked = { showTabletEpisodes = false },
                     )
                 }
             }
@@ -448,7 +452,7 @@ private val shadowed = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.4f),
  * goes down to the bottom of the screen too, with no episode bar below.
  */
 @Composable
-private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: Rotation?, landscape: Boolean, search: () -> Unit, modifier: Modifier) {
+private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: Rotation?, landscape: Boolean, search: () -> Unit, tabletEpisodesVisible: Boolean, toggleTabletEpisodes: (() -> Unit)?, modifier: Modifier) {
     val player = LocalModel.current.player
     LaunchedEffect(hud.controlsVisible, hud.controlsPinned, hud.holding, player.paused, player.state, chrome) {
         if (!chrome || !hud.controlsVisible || hud.controlsPinned || hud.holding || player.paused || player.state != PlayerState.Playing) {
@@ -490,7 +494,7 @@ private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: 
                 enter = fadeIn(tween(180)),
                 exit = fadeOut(tween(220)),
             ) {
-                TopBar(hud, rotation, landscape, search)
+                TopBar(hud, rotation, landscape, search, tabletEpisodesVisible, toggleTabletEpisodes)
             }
             SpeedHint(hud)
             Spacer(Modifier.weight(1f))
@@ -964,7 +968,7 @@ private fun DiagnosticValue(label: String, value: String) {
 
 /** TopBar is what plays, and how fast, over the top of the video, with the way out, to turn the screen, to search and to more. */
 @Composable
-private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, search: () -> Unit) {
+private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, search: () -> Unit, tabletEpisodesVisible: Boolean, toggleTabletEpisodes: (() -> Unit)?) {
     val player = LocalModel.current.player
     Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent)))) {
         Row(
@@ -985,6 +989,15 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
             SpeedMenu(hud)
             if (rotation != null) RotateButton(rotation, landscape)
             IconButton(onClick = search) { Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Color.White) }
+            if (toggleTabletEpisodes != null) {
+                IconButton(onClick = toggleTabletEpisodes) {
+                    Icon(
+                        Icons.Filled.GridView,
+                        contentDescription = if (tabletEpisodesVisible) "隐藏选集" else "显示选集",
+                        tint = Color.White,
+                    )
+                }
+            }
             MoreMenu(hud)
         }
     }
