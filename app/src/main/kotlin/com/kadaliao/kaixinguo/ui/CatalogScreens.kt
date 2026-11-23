@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.items
@@ -27,10 +28,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.RemoveCircleOutline
 import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +67,8 @@ import com.kadaliao.kaixinguo.model.Watch
 import com.kadaliao.kaixinguo.model.dayLabel
 import com.kadaliao.kaixinguo.model.friendly
 import com.kadaliao.kaixinguo.model.todayKey
+import com.kadaliao.kaixinguo.MainActivity
+import com.kadaliao.kaixinguo.cast.PhoneDiagnosticReport
 import kotlinx.coroutines.delay
 
 /** DiscoverScreen is the recommended series. */
@@ -223,9 +232,55 @@ fun HotView() {
 @Composable
 fun MineScreen() {
     val model = LocalModel.current
+    val context = LocalContext.current
+    val activity = context as? MainActivity
     val watched = model.history.list.take(30)
     val saved = model.favorites.cards
-    Page("我的") {
+    var menuExpanded by remember { mutableStateOf(false) }
+    var receivingDiagnostics by remember { mutableStateOf(activity?.isDiagnosticReceiverEnabled() == true) }
+    var inboxOpen by remember { mutableStateOf(false) }
+    var inbox by remember { mutableStateOf(emptyList<PhoneDiagnosticReport>()) }
+
+    Page(
+        title = "我的",
+        actions = {
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("立即更新") },
+                        onClick = {
+                            menuExpanded = false
+                            activity?.checkForUpdatesManually()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("接收诊断", modifier = Modifier.weight(1f))
+                                Switch(checked = receivingDiagnostics, onCheckedChange = null)
+                            }
+                        },
+                        onClick = {
+                            receivingDiagnostics = !receivingDiagnostics
+                            activity?.setDiagnosticReceiverEnabled(receivingDiagnostics)
+                            menuExpanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("诊断收件箱") },
+                        onClick = {
+                            menuExpanded = false
+                            inbox = activity?.diagnosticInboxReports().orEmpty()
+                            inboxOpen = true
+                        },
+                    )
+                }
+            }
+        },
+    ) {
         CardGrid {
             if (watched.isNotEmpty()) {
                 line("watched-title") { SectionTitle("最近观看") }
@@ -253,6 +308,33 @@ fun MineScreen() {
                 items(saved, key = { it.id }) { CardView(it) }
             }
         }
+    }
+
+    if (inboxOpen) {
+        AlertDialog(
+            onDismissRequest = { inboxOpen = false },
+            title = { Text("诊断收件箱") },
+            text = {
+                if (inbox.isEmpty()) {
+                    Text("还没有收到电视发送的诊断信息。请先开启“接收诊断”，并让手机与电视连接同一局域网。")
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                        items(inbox, key = { it.reportId }) { report ->
+                            Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                                Text(report.sourceName, fontWeight = FontWeight.SemiBold)
+                                Text("${report.receivedAt} · ${report.sourceVersion}", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("hongguoTV 播放诊断", report.report))
+                                    android.widget.Toast.makeText(context, "完整诊断已复制", android.widget.Toast.LENGTH_SHORT).show()
+                                }) { Text("复制完整诊断") }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { inboxOpen = false }) { Text("关闭") },
+        )
     }
 }
 

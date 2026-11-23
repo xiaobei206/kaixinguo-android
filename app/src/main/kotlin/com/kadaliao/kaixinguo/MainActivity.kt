@@ -2,6 +2,8 @@ package com.kadaliao.kaixinguo
 
 import android.app.PictureInPictureParams
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -35,6 +37,8 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.kadaliao.kaixinguo.model.AppModel
 import com.kadaliao.kaixinguo.model.PlayerState
+import com.kadaliao.kaixinguo.cast.PhoneDiagnosticReceiver
+import com.kadaliao.kaixinguo.cast.PhoneDiagnosticReport
 import com.kadaliao.kaixinguo.playback.PlaybackService
 import com.kadaliao.kaixinguo.ui.App
 import com.kadaliao.kaixinguo.ui.StartFailed
@@ -72,6 +76,8 @@ class MainActivity : ComponentActivity() {
     private var pipWanted = false
     private var controller: ListenableFuture<MediaController>? = null
     private var installStateReceiverRegistered = false
+    private var diagnosticReceiver: PhoneDiagnosticReceiver? = null
+    private val diagnosticPrefs by lazy { getSharedPreferences("diagnostic_receiver", Context.MODE_PRIVATE) }
     private val installStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != AppUpdater.ACTION_INSTALL_STATE_CHANGED) return
@@ -153,6 +159,40 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    fun isDiagnosticReceiverEnabled(): Boolean =
+        diagnosticPrefs.getBoolean("enabled", false)
+
+    fun setDiagnosticReceiverEnabled(enabled: Boolean) {
+        diagnosticPrefs.edit().putBoolean("enabled", enabled).apply()
+        if (enabled) startDiagnosticReceiverIfEnabled() else stopDiagnosticReceiver()
+        Toast.makeText(
+            this,
+            if (enabled) "已开启局域网诊断接收（仅在开心果前台时有效）" else "已关闭诊断接收",
+            Toast.LENGTH_LONG,
+        ).show()
+    }
+
+    fun diagnosticInboxReports(): List<PhoneDiagnosticReport> =
+        PhoneDiagnosticReceiver.readInbox(this)
+
+    private fun startDiagnosticReceiverIfEnabled() {
+        if (!isDiagnosticReceiverEnabled() || diagnosticReceiver != null || isFinishing) return
+        val receiver = PhoneDiagnosticReceiver(this)
+        diagnosticReceiver = receiver
+        receiver.start { report ->
+            runOnUiThread {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("hongguoTV 播放诊断", report.report))
+                Toast.makeText(this, "收到 ${report.sourceName} 诊断信息，已复制到剪贴板", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun stopDiagnosticReceiver() {
+        diagnosticReceiver?.stop()
+        diagnosticReceiver = null
+    }
+
     private fun registerInstallStateReceiver() {
         if (installStateReceiverRegistered) return
         ContextCompat.registerReceiver(
@@ -172,6 +212,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        startDiagnosticReceiverIfEnabled()
         // Connecting to the session starts its service, which keeps the
         // episode playing with the screen off.
         val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
@@ -181,6 +222,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        stopDiagnosticReceiver()
         super.onStop()
         controller?.let { MediaController.releaseFuture(it) }
         controller = null

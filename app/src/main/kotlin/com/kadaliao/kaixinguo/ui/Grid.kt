@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
@@ -122,11 +123,16 @@ private fun flatBar() = TopAppBarDefaults.topAppBarColors(
 
 /** Page is a tab's own page: its title in a bar, over what it shows. */
 @Composable
-fun Page(title: String, content: @Composable BoxScope.() -> Unit) {
+fun Page(
+    title: String,
+    actions: @Composable RowScope.() -> Unit = {},
+    content: @Composable BoxScope.() -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) },
+                actions = actions,
                 colors = flatBar(),
             )
         },

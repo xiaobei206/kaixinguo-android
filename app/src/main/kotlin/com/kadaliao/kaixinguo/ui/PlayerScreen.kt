@@ -891,59 +891,36 @@ private fun PlayerOverlay() {
             val context = LocalContext.current
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.92f)), contentAlignment = Alignment.Center) {
                 Column(
-                    Modifier.fillMaxWidth().widthIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(24.dp),
-                    horizontalAlignment = Alignment.Start,
-                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                    Modifier.fillMaxWidth().widthIn(max = 560.dp).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Text(s.message, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    Text(s.message, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
                     val d = s.diagnostic
                     if (d != null) {
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.22f))
-                        Text("服务器返回信息", color = Color.White, fontWeight = FontWeight.Bold)
-                        DiagnosticValue("服务器原始业务码", d.serverBusinessCode ?: "服务器未提供业务码")
-                        if (!d.serverErrorName.isNullOrBlank()) DiagnosticValue("服务器业务码名称", d.serverErrorName)
-                        DiagnosticValue("服务器原始错误信息", d.serverErrorMessage ?: "服务器未提供错误文本")
-                        DiagnosticValue("HTTP 状态码", d.httpStatus?.let { "$it" } ?: "未取得")
-                        DiagnosticValue("请求方法", d.requestMethod ?: "未取得")
-                        DiagnosticValue("请求接口", d.endpoint ?: "未取得")
-                        DiagnosticValue("响应体字节数（传输）", d.responseBytes?.toString() ?: "SDK 未提供")
-                        DiagnosticValue("响应体字节数（解压后）", d.decodedResponseBytes?.toString() ?: "SDK 未提供")
-                        if (!d.responseContentType.isNullOrBlank()) DiagnosticValue("Content-Type", d.responseContentType)
-                        if (!d.responseContentEncoding.isNullOrBlank()) DiagnosticValue("Content-Encoding", d.responseContentEncoding)
-                        DiagnosticValue("SDK 错误代码", d.sdkCode)
-                        DiagnosticValue("SDK 错误信息", d.sdkMessage)
-                        DiagnosticValue("响应体说明", d.responseBodyNote)
-                        if (d.retryAfterMs > 0) DiagnosticValue("建议等待时间", "${d.retryAfterMs} ms")
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.16f))
-                        Text("最近 SDK 请求记录", color = Color.White, fontWeight = FontWeight.Bold)
-                        if (d.events.isEmpty()) {
-                            Text("没有捕获到 SDK 请求日志", color = Color.LightGray, fontSize = 11.sp)
-                        } else {
-                            d.events.takeLast(8).forEach { event ->
-                                Text(
-                                    "${event.time}  ${event.message}",
-                                    color = Color.LightGray,
-                                    fontSize = 10.sp,
-                                )
-                            }
-                        }
-                        TextButton(onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("开心果播放诊断", d.toReport()))
-                            AndroidToast.makeText(context, "完整诊断信息已复制", AndroidToast.LENGTH_SHORT).show()
-                        }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                            Text("复制完整诊断信息", color = Color.White)
-                        }
+                        Text(
+                            "完整请求过程、响应信息和设备环境已收集",
+                            color = Color.LightGray,
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                        )
+                        Button(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("开心果播放诊断", d.toReport()))
+                                AndroidToast.makeText(context, "完整诊断信息已复制", AndroidToast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("复制完整诊断信息") }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = player::retry) { Text("重试") }
                         if (player.hasNext) OutlinedButton(onClick = { player.step(1) }) { Text("下一集") }
                     }
                     if (d?.canRefreshDevice == true) {
-                        OutlinedButton(
-                            onClick = player::retryWithFreshDevice,
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
-                        ) { Text("刷新匿名设备并重试") }
+                        OutlinedButton(onClick = player::retryWithFreshDevice) {
+                            Text("刷新匿名设备并重试")
+                        }
                     }
                 }
             }
@@ -998,10 +975,10 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                     )
                 }
             }
+            TvHandoffButton(model = LocalModel.current)
             MoreMenu(hud)
         }
     }
-}
 
 /**
  * RotateButton turns the screen on its side for a video wider than tall,
