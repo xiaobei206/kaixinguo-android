@@ -334,7 +334,7 @@ fun MineScreen() {
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { inboxOpen = false }) { Text("关闭") },
+            confirmButton = { TextButton(onClick = { inboxOpen = false }) { Text("关闭") } },
         )
     }
 }

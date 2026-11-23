@@ -979,6 +979,7 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
             MoreMenu(hud)
         }
     }
+}
 
 /**
  * RotateButton turns the screen on its side for a video wider than tall,

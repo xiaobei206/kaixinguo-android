@@ -3,9 +3,7 @@ package com.kadaliao.kaixinguo.cast
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.os.Build
 import android.util.Log
-import com.kadaliao.kaixinguo.BuildConfig
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -99,7 +97,6 @@ class PhoneDiagnosticReceiver(context: Context) {
             serviceType = SERVICE_TYPE
             this.port = port
             setAttribute("label", "开心果")
-            setAttribute("version", BuildConfig.VERSION_NAME)
             setAttribute("protocol", PROTOCOL_VERSION.toString())
         }
         val listener = object : NsdManager.RegistrationListener {
