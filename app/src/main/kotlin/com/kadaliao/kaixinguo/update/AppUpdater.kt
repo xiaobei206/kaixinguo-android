@@ -278,9 +278,8 @@ object AppUpdater {
 
 
 /**
- * PackageInstaller.commit() must be able to add status extras to the callback
- * Intent. From Android 12 (API 31), its PendingIntent therefore must be mutable.
- * The callback targets our non-exported receiver explicitly.
+ * Android 12+ must follow the explicit system confirmation flow. Older Android
+ * versions do not expose setRequireUserAction(), so their platform default applies.
  */
 internal fun installUserActionRequirement(sdkInt: Int): Int? =
     if (sdkInt >= Build.VERSION_CODES.S) {
@@ -289,6 +288,11 @@ internal fun installUserActionRequirement(sdkInt: Int): Int? =
         null
     }
 
+/**
+ * PackageInstaller.commit() must be able to add status extras to the callback
+ * Intent. From Android 12 (API 31), its PendingIntent therefore must be mutable.
+ * The callback targets our non-exported receiver explicitly.
+ */
 internal fun installStatusPendingIntentFlags(sdkInt: Int): Int {
     val mutabilityFlag = if (sdkInt >= Build.VERSION_CODES.S) {
         PendingIntent.FLAG_MUTABLE
