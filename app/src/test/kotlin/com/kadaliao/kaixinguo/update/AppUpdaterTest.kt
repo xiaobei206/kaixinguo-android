@@ -8,6 +8,14 @@ import org.junit.Test
 
 class AppUpdaterTest {
     @Test
+    fun apkDownloadsUseTheCustomMirrorRootAndKeepVersionedNames() {
+        assertEquals(
+            "https://h.henhei.win/kaixinguo-android-v0.4.21-arm64-v8a.apk",
+            AppUpdater.mirrorApkUrl("kaixinguo-android-v0.4.21-arm64-v8a.apk"),
+        )
+    }
+
+    @Test
     fun installStatusPendingIntentAddsMutabilityFlagOnAndroid12AndLater() {
         val legacyFlags = AppUpdater.installStatusPendingIntentFlags(Build.VERSION_CODES.R)
         val modernFlags = AppUpdater.installStatusPendingIntentFlags(Build.VERSION_CODES.S)
