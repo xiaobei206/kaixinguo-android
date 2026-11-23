@@ -173,7 +173,7 @@ class TvDiscovery(context: Context) {
     }
 
     private fun attribute(info: NsdServiceInfo, key: String): String =
-        runCatching { info.getAttribute(key)?.toString(Charsets.UTF_8).orEmpty() }.getOrDefault("").trim()
+        runCatching { info.attributes[key]?.toString(Charsets.UTF_8).orEmpty() }.getOrDefault("").trim()
 }
 
 object TvHandoffClient {
