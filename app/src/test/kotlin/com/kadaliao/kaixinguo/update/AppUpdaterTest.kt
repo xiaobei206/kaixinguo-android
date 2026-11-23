@@ -10,9 +10,22 @@ class AppUpdaterTest {
     @Test
     fun apkDownloadsUseTheCustomMirrorRootAndKeepVersionedNames() {
         assertEquals(
-            "https://h.henhei.win/kaixinguo-android-v0.4.21-arm64-v8a.apk",
+            "https://h.henhei.win/kaixinguo-android-v0.4.27-arm64-v8a.apk",
             AppUpdater.mirrorApkUrl("kaixinguo-android-v0.4.21-arm64-v8a.apk"),
         )
+    }
+
+    @Test
+    fun installAlwaysRequiresExplicitConfirmationOnAndroid12AndLater() {
+        assertEquals(
+            PackageInstaller.SessionParams.USER_ACTION_REQUIRED,
+            AppUpdater.installUserActionRequirement(Build.VERSION_CODES.S),
+        )
+        assertEquals(
+            PackageInstaller.SessionParams.USER_ACTION_REQUIRED,
+            AppUpdater.installUserActionRequirement(Build.VERSION_CODES.S + 1),
+        )
+        assertEquals(null, AppUpdater.installUserActionRequirement(Build.VERSION_CODES.R))
     }
 
     @Test

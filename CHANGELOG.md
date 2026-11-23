@@ -1,6 +1,16 @@
 # 更新日志
 
 
+## [0.4.27] - 2026-11-23
+
+### 修复
+- Android 12 及以上更新明确要求系统安装确认，不再尝试免用户确认安装路径，避免部分厂商安装器在未显示确认界面时返回 `INSTALL_FAILED_ABORTED: User rejected permissions`
+- 移除 `UPDATE_PACKAGES_WITHOUT_USER_ACTION` 权限声明；保留未知来源授权检查、APK SHA-256 校验、系统安装会话和失败重试
+- 记录安装提交时的厂商、机型、Android API、APK 大小和安装会话 ID，便于分析厂商系统差异
+
+### 测试
+- 增加安装动作策略测试：Android 12 及以上显式要求系统确认，Android 11 及以下沿用平台默认行为
+
 ## [0.4.26] - 2026-11-23
 
 ### 修复

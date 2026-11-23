@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.content.Intent
 import android.app.PendingIntent
 import android.os.Build
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -36,6 +37,7 @@ object AppUpdater {
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 20_000
     private const val INSTALL_STATUS_PREFS = "update_install_status"
+    private const val TAG = "HongguoQuGuangUpdater"
 
     const val ACTION_INSTALL_STATE_CHANGED = "com.kadaliao.kaixinguo.UPDATE_INSTALL_STATE_CHANGED"
     const val EXTRA_INSTALL_STATUS = "install_status"
@@ -197,9 +199,17 @@ object AppUpdater {
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(context.packageName)
         params.setSize(apk.length())
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-        }
+        // Always ask Android to show its normal install confirmation UI on API 31+.
+        // USER_ACTION_NOT_REQUIRED is conditional on installer/update-owner eligibility and
+        // has caused some OEM installers to abort before surfacing the confirmation screen.
+        val requireUserAction = installUserActionRequirement(Build.VERSION.SDK_INT)
+        if (requireUserAction != null) params.setRequireUserAction(requireUserAction)
+        Log.i(
+            TAG,
+            "Preparing APK install: manufacturer=${Build.MANUFACTURER}, model=${Build.MODEL}, " +
+                "sdk=${Build.VERSION.SDK_INT}, apkBytes=${apk.length()}, " +
+                "userAction=${requireUserAction?.toString() ?: "platform-default"}",
+        )
         val sessionId = installer.createSession(params)
         try {
             installer.openSession(sessionId).use { session ->
@@ -216,6 +226,7 @@ object AppUpdater {
                     context, sessionId, callback,
                     installStatusPendingIntentFlags(Build.VERSION.SDK_INT),
                 )
+                Log.i(TAG, "Committing APK install sessionId=$sessionId")
                 session.commit(pending.intentSender)
             }
         } catch (e: Exception) {
@@ -271,6 +282,13 @@ object AppUpdater {
  * Intent. From Android 12 (API 31), its PendingIntent therefore must be mutable.
  * The callback targets our non-exported receiver explicitly.
  */
+internal fun installUserActionRequirement(sdkInt: Int): Int? =
+    if (sdkInt >= Build.VERSION_CODES.S) {
+        PackageInstaller.SessionParams.USER_ACTION_REQUIRED
+    } else {
+        null
+    }
+
 internal fun installStatusPendingIntentFlags(sdkInt: Int): Int {
     val mutabilityFlag = if (sdkInt >= Build.VERSION_CODES.S) {
         PendingIntent.FLAG_MUTABLE
