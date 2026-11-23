@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.content.Intent
 import android.app.PendingIntent
 import android.os.Build
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -23,6 +24,7 @@ data class UpdateInfo(
     val apkName: String,
     val apkUrl: String,
     val sha256: String,
+    val fallbackApkUrl: String? = null,
 )
 
 data class UpdateInstallStatus(val status: Int, val message: String)
@@ -30,6 +32,7 @@ data class UpdateInstallStatus(val status: Int, val message: String)
 object AppUpdater {
     private const val REPO = "xiaobei206/kaixinguo-android"
     private const val API_LATEST = "https://api.github.com/repos/$REPO/releases/latest"
+    private const val APK_MIRROR_BASE = "https://h.henhei.win/"
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 20_000
     private const val INSTALL_STATUS_PREFS = "update_install_status"
@@ -90,8 +93,9 @@ object AppUpdater {
             versionCode = latestCode,
             releaseNotes = release.optString("body").take(1800),
             apkName = selected.key,
-            apkUrl = selected.value.second,
+            apkUrl = mirrorApkUrl(selected.key),
             sha256 = selected.value.first,
+            fallbackApkUrl = selected.value.second,
         )
     }
 
@@ -109,6 +113,8 @@ object AppUpdater {
             }
             target
         }
+
+    internal fun mirrorApkUrl(apkName: String): String = "$APK_MIRROR_BASE$apkName"
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -129,47 +135,60 @@ object AppUpdater {
             val folder = File(context.cacheDir, "updates").apply { mkdirs() }
             val target = File(folder, info.apkName)
             val partial = File(folder, info.apkName + ".part")
-            partial.delete()
-            var connection: HttpURLConnection? = null
-            try {
-                connection = (URL(info.apkUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = CONNECT_TIMEOUT_MS
-                    readTimeout = READ_TIMEOUT_MS
-                    instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "HongguoQuGuang-Android")
-                    setRequestProperty("Accept", "application/octet-stream")
-                }
-                connection.connect()
-                if (connection.responseCode !in 200..299) error("下载失败：HTTP ${connection.responseCode}")
-                val total = connection.contentLengthLong
-                var received = 0L
-                connection.inputStream.use { input ->
-                    partial.outputStream().buffered().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            coroutineContext.ensureActive()
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            output.write(buffer, 0, count)
-                            received += count
-                            if (total > 0) onProgress(((received * 100) / total).toInt().coerceIn(0, 100))
+            val urls = listOfNotNull(info.apkUrl, info.fallbackApkUrl)
+                .filter { it.isNotBlank() }
+                .distinct()
+            check(urls.isNotEmpty()) { "没有可用的下载地址" }
+            var lastFailure: Exception? = null
+
+            for ((index, address) in urls.withIndex()) {
+                partial.delete()
+                var connection: HttpURLConnection? = null
+                try {
+                    connection = (URL(address).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = CONNECT_TIMEOUT_MS
+                        readTimeout = READ_TIMEOUT_MS
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", "HongguoQuGuang-Android")
+                        setRequestProperty("Accept", "application/octet-stream")
+                    }
+                    connection.connect()
+                    if (connection.responseCode !in 200..299) error("下载失败：HTTP ${connection.responseCode}")
+                    val total = connection.contentLengthLong
+                    var received = 0L
+                    connection.inputStream.use { input ->
+                        partial.outputStream().buffered().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                coroutineContext.ensureActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                                received += count
+                                if (total > 0) onProgress(((received * 100) / total).toInt().coerceIn(0, 100))
+                            }
                         }
                     }
+                    if (total > 0L && received != total) {
+                        error("下载不完整：收到 $received / $total 字节")
+                    }
+                    val actual = sha256(partial)
+                    check(actual.equals(info.sha256, ignoreCase = true)) { "安装包 SHA-256 校验失败，已取消安装" }
+                    target.delete()
+                    check(partial.renameTo(target)) { "无法保存已校验的安装包" }
+                    return@withContext target
+                } catch (e: CancellationException) {
+                    partial.delete()
+                    throw e
+                } catch (e: Exception) {
+                    partial.delete()
+                    lastFailure = e
+                    if (index < urls.lastIndex) onProgress(0)
+                } finally {
+                    connection?.disconnect()
                 }
-                if (total > 0L && received != total) {
-                    error("下载不完整：收到 $received / $total 字节")
-                }
-                val actual = sha256(partial)
-                check(actual.equals(info.sha256, ignoreCase = true)) { "安装包 SHA-256 校验失败，已取消安装" }
-                target.delete()
-                check(partial.renameTo(target)) { "无法保存已校验的安装包" }
-                target
-            } catch (e: Exception) {
-                partial.delete()
-                throw e
-            } finally {
-                connection?.disconnect()
             }
+            throw lastFailure ?: IllegalStateException("下载失败：没有可用的下载地址")
         }
 
     fun install(context: Context, apk: File): Int {
