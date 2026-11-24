@@ -32,7 +32,7 @@ data class UpdateInstallStatus(val status: Int, val message: String)
 
 object AppUpdater {
     private const val REPO = "xiaobei206/kaixinguo-android"
-    private const val API_LATEST = "https://api.github.com/repos/$REPO/releases/latest"
+    private const val API_RELEASES = "https://api.github.com/repos/$REPO/releases?per_page=100"
     private const val APK_MIRROR_BASE = "https://h.henhei.win/"
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 20_000
@@ -46,8 +46,8 @@ object AppUpdater {
     const val EXTRA_INSTALL_MESSAGE = "install_message"
 
     suspend fun check(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
-        val release = getJson(API_LATEST)
-        if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true)) return@withContext null
+        val releases = getJsonArray(API_RELEASES)
+        val release = highestStableRelease(releases) ?: return@withContext null
         val releaseAssets = release.optJSONArray("assets") ?: return@withContext null
         var metadataUrl: String? = null
         val downloadUrls = mutableMapOf<String, String>()
@@ -101,6 +101,51 @@ object AppUpdater {
             sha256 = selected.value.first,
             fallbackApkUrl = selected.value.second,
         )
+    }
+
+    /**
+     * GitHub's /releases/latest can choose unpredictably when releases share
+     * the same created_at timestamp. Compare stable vMAJOR.MINOR.PATCH tags instead.
+     */
+    internal fun highestStableRelease(releases: org.json.JSONArray): JSONObject? {
+        val candidates = mutableListOf<Pair<JSONObject, List<Int>>>()
+        for (index in 0 until releases.length()) {
+            val release = releases.optJSONObject(index) ?: continue
+            if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true)) continue
+            val version = parseReleaseVersion(release.optString("tag_name")) ?: continue
+            candidates += release to version
+        }
+        return candidates.maxWithOrNull { left, right ->
+            val versionOrder = compareVersionParts(left.second, right.second)
+            if (versionOrder != 0) {
+                versionOrder
+            } else {
+                left.first.optString("published_at").compareTo(right.first.optString("published_at"))
+            }
+        }?.first
+    }
+
+    internal fun compareReleaseVersions(first: String, second: String): Int {
+        val left = parseReleaseVersion(first) ?: return first.compareTo(second)
+        val right = parseReleaseVersion(second) ?: return first.compareTo(second)
+        return compareVersionParts(left, right)
+    }
+
+    private fun parseReleaseVersion(tag: String): List<Int>? {
+        val match = Regex("""^v?([0-9]+)[.]([0-9]+)[.]([0-9]+)$""").matchEntire(tag) ?: return null
+        return listOf(
+            match.groupValues[1].toIntOrNull() ?: return null,
+            match.groupValues[2].toIntOrNull() ?: return null,
+            match.groupValues[3].toIntOrNull() ?: return null,
+        )
+    }
+
+    private fun compareVersionParts(first: List<Int>, second: List<Int>): Int {
+        for (index in 0..2) {
+            val comparison = first[index].compareTo(second[index])
+            if (comparison != 0) return comparison
+        }
+        return 0
     }
 
     /**
@@ -306,6 +351,23 @@ internal fun installStatusPendingIntentFlags(sdkInt: Int): Int {
 
     fun canInstallPackages(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()
+
+    private fun getJsonArray(address: String): org.json.JSONArray {
+        val connection = (URL(address).openConnection() as HttpURLConnection).apply {
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "HongguoQuGuang-Android")
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+        }
+        try {
+            check(connection.responseCode in 200..299) { "GitHub 更新检查失败：HTTP ${connection.responseCode}" }
+            return connection.inputStream.bufferedReader(Charsets.UTF_8).use { org.json.JSONArray(it.readText()) }
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     private fun getJson(address: String): JSONObject {
         val connection = (URL(address).openConnection() as HttpURLConnection).apply {
