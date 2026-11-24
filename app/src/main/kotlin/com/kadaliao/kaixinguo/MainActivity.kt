@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
                             onUpdate = ::beginUpdate,
                             onCancel = ::cancelUpdate,
                             onRetry = ::beginUpdate,
+                            onContinueInstall = ::continueInstallConfirmation,
                         )
                     }
                 }
@@ -339,6 +340,38 @@ class MainActivity : ComponentActivity() {
                 Log.w("HongguoQuGuangUpdater", "Package update failed; sessionId=$sessionId detail=$detail")
             }
         }
+    }
+
+    private fun continueInstallConfirmation(sessionId: Int) {
+        val state = updateState as? UpdateUiState.AwaitingConfirmation ?: return
+        if (state.sessionId != sessionId) return
+
+        val confirmation = AppUpdater.loadInstallConfirmation(this, sessionId)
+        if (confirmation == null) {
+            updateState = UpdateUiState.Failed(
+                state.info,
+                "系统安装确认信息已失效，请重新提交安装",
+                sessionId,
+            )
+            return
+        }
+
+        Log.i(
+            "HongguoQuGuangUpdater",
+            "User tapped Continue install; launching stored PackageInstaller confirmation " +
+                "from foreground Activity, sessionId=$sessionId",
+        )
+        runCatching { startActivity(confirmation) }
+            .onSuccess {
+                updateState = state.copy(launchError = null)
+                Log.i("HongguoQuGuangUpdater", "Foreground confirmation launch requested; sessionId=$sessionId")
+            }
+            .onFailure { error ->
+                Log.e("HongguoQuGuangUpdater", "Foreground confirmation launch failed; sessionId=$sessionId", error)
+                updateState = state.copy(
+                    launchError = "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                )
+            }
     }
 
     private fun beginUpdate(info: UpdateInfo) {

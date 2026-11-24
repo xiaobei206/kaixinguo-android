@@ -288,6 +288,31 @@ object AppUpdater {
             .onFailure { Log.w(TAG, "Could not abandon previous install session $sessionId", it) }
     }
 
+    private fun installConfirmationPreferenceKey(sessionId: Int) = "confirmation_$sessionId"
+
+    /** Persist the system-provided confirmation Intent so it can be launched from a user tap. */
+    fun saveInstallConfirmation(context: Context, sessionId: Int, confirmation: Intent) {
+        require(sessionId >= 0)
+        val serialized = confirmation.toUri(Intent.URI_INTENT_SCHEME)
+        context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE).edit()
+            .putString(installConfirmationPreferenceKey(sessionId), serialized)
+            .commit()
+        Log.i(
+            TAG,
+            "Saved PackageInstaller confirmation for foreground launch; sessionId=$sessionId " +
+                "action=${confirmation.action} component=${confirmation.component?.flattenToShortString()}",
+        )
+    }
+
+    fun loadInstallConfirmation(context: Context, sessionId: Int): Intent? {
+        if (sessionId < 0) return null
+        val serialized = context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE)
+            .getString(installConfirmationPreferenceKey(sessionId), null) ?: return null
+        return runCatching { Intent.parseUri(serialized, Intent.URI_INTENT_SCHEME) }
+            .onFailure { Log.e(TAG, "Could not restore PackageInstaller confirmation for sessionId=$sessionId", it) }
+            .getOrNull()
+    }
+
     fun readInstallStatus(context: Context, sessionId: Int): UpdateInstallStatus? {
         val prefs = context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE)
         val key = "status_$sessionId"
@@ -301,10 +326,14 @@ object AppUpdater {
     /** Persists the system callback before notifying the foreground Activity. */
     fun recordInstallStatus(context: Context, sessionId: Int, status: Int, message: String) {
         if (sessionId < 0) return
-        context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE).edit()
+        val statusPrefs = context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE)
+        val statusEditor = statusPrefs.edit()
             .putInt("status_$sessionId", status)
             .putString("message_$sessionId", message)
-            .commit()
+        if (status != PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            statusEditor.remove(installConfirmationPreferenceKey(sessionId))
+        }
+        statusEditor.commit()
 
         context.sendBroadcast(
             Intent(ACTION_INSTALL_STATE_CHANGED)
