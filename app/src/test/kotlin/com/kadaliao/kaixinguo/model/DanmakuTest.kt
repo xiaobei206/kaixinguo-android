@@ -59,19 +59,25 @@ class DanmakuTest {
     }
 
     @Test
-    fun edgeFadesFollowTextPosition() {
-        val lanes = Lanes(listOf(Comment("淡入淡出", 0)), 20f)
+    fun edgeFadesUseVisibleScreenRelativeDurations() {
+        val lanes = Lanes(listOf(Comment("好看", 0)), 100f)
         val flight = lanes.flights.single()
 
-        // Nothing visible at the instant it touches the right edge; fully in after one em.
-        assertEquals(0f, lanes.alpha(flight, 20f), 0.001f)
-        assertEquals(1f, lanes.alpha(flight, 19f), 0.001f)
+        // A 10%-screen fade-in: 700 ms at the normal 7-second crossing speed.
+        assertEquals(0f, lanes.alpha(flight, 100f), 0.001f)
+        assertEquals(0.5f, lanes.alpha(flight, 95f), 0.001f)
+        assertEquals(1f, lanes.alpha(flight, 90f), 0.001f)
 
-        // Fade-out starts when the trailing edge is 2.5 ems from the left;
-        // it reaches zero as that edge leaves the screen.
-        assertEquals(1f, lanes.alpha(flight, 2.5f - flight.width), 0.001f)
-        assertEquals(0.5f, lanes.alpha(flight, 1.25f - flight.width), 0.001f)
+        // A 16%-screen fade-out, based on the text's trailing edge.
+        assertEquals(1f, lanes.alpha(flight, 16f - flight.width), 0.001f)
+        assertEquals(0.5f, lanes.alpha(flight, 8f - flight.width), 0.001f)
         assertEquals(0f, lanes.alpha(flight, -flight.width), 0.001f)
+
+        // Narrow layouts keep a minimum fade width instead of becoming abrupt.
+        val narrow = Lanes(listOf(Comment("好看", 0)), 20f)
+        val narrowFlight = narrow.flights.single()
+        assertEquals(0.5f, narrow.alpha(narrowFlight, 18f), 0.001f)
+        assertEquals(0.5f, narrow.alpha(narrowFlight, 1.5f - narrowFlight.width), 0.001f)
     }
 
     /**

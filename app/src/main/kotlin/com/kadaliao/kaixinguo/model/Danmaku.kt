@@ -20,6 +20,12 @@ private const val LANE_COUNT = 4
 /** The room between one comment and the next in a lane, in ems. */
 private const val GAP = 2f
 
+/** Fade-in travel distance as a fraction of the screen width. */
+private const val FADE_IN_RATIO = 0.10f
+
+/** Fade-out travel distance as a fraction of the screen width. */
+private const val FADE_OUT_RATIO = 0.16f
+
 /** How long a comment may wait for a lane, in ms, before it is dropped. */
 private const val MAX_WAIT_MS = 1500L
 
@@ -85,22 +91,26 @@ class Lanes(comments: List<Comment>, val screen: Float, lanes: Int = LANE_COUNT)
     private fun crossing(ems: Float): Long = (ems * CROSSING_MS / screen).toLong()
 
     /**
-     * Calls `each` with the index of each comment on the screen `ms` into the
-     * episode, and how far its left edge is from the screen's, in ems.
-     */
-    /**
-     * Opacity based on the comment's position, not elapsed wall-clock time:
-     * fade in over the first em at the right edge, then fade out over the
-     * final 2.5 ems as the trailing edge leaves the left side of the screen.
+     * Opacity follows the text's position, not wall-clock time. The fade
+     * spans are proportional to the visible screen width: about 700 ms to
+     * enter and 1.12 s to leave at the normal 7-second crossing speed.
      */
     fun alpha(flight: Flight, x: Float): Float {
         if (screen <= 0f) return 0f
-        val entering = (screen - x).coerceIn(0f, 1f)
+        // Keep a minimum span on unusually narrow layouts, but make the fade
+        // long enough to be visibly perceived on phones and wide displays.
+        val fadeIn = maxOf(1f, screen * FADE_IN_RATIO)
+        val fadeOut = maxOf(2.5f, screen * FADE_OUT_RATIO)
+        val entering = (screen - x) / fadeIn
         val trailingEdge = x + flight.width
-        val leaving = (trailingEdge / 2.5f).coerceIn(0f, 1f)
-        return minOf(entering, leaving)
+        val leaving = trailingEdge / fadeOut
+        return minOf(entering, leaving).coerceIn(0f, 1f)
     }
 
+    /**
+     * Calls `each` with the index of each comment on the screen `ms` into the
+     * episode, and how far its left edge is from the screen's, in ems.
+     */
     inline fun at(ms: Long, each: (Int, Float) -> Unit) {
         for (i in flights.indices) {
             val f = flights[i]
