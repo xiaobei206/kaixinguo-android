@@ -921,6 +921,12 @@ replace_function(
 }""",
 )
 
+replace_once(
+    "internal/protocol/parse_test.go",
+    """"series_id_str":"7100000000000101","series_title":"Fixture Lantern Court"}]}}]}]}}`)""",
+    """"series_id_str":"7100000000000101","series_title":"Fixture Lantern Court","series_cover":"https://media.invalid/search-cover.jpg"}]}}]}]}}`)""",
+)
+
 for path in (
     "sdk/errors.go",
     "sdk/device.go",
