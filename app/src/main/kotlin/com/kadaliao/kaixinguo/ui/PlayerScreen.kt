@@ -3,7 +3,12 @@
 package com.kadaliao.kaixinguo.ui
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.os.BatteryManager
 import android.os.Handler
 import android.os.Looper
 import android.content.pm.ActivityInfo
@@ -77,6 +82,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FastForward
@@ -173,6 +181,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -947,6 +956,8 @@ private fun DiagnosticValue(label: String, value: String) {
 @Composable
 private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, search: () -> Unit, tabletEpisodesVisible: Boolean, toggleTabletEpisodes: (() -> Unit)?) {
     val player = LocalModel.current.player
+    val config = LocalConfiguration.current
+    val showFullscreenClock = landscape || (config.smallestScreenWidthDp >= 600 && !tabletEpisodesVisible)
     Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent)))) {
         Row(
             Modifier.fillMaxWidth()
@@ -957,7 +968,7 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
             IconButton(onClick = player::leave) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBackIos, contentDescription = "退出播放", tint = Color.White)
             }
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).padding(end = if (showFullscreenClock) 236.dp else 0.dp)) {
                 Text("第 ${player.number} 集", color = Color.White, style = MaterialTheme.typography.titleMedium.merge(shadowed), fontWeight = FontWeight.SemiBold)
                 player.page?.series?.title?.let {
                     Text(it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall.merge(shadowed), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -977,6 +988,103 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
             }
             TvHandoffButton(model = LocalModel.current)
             MoreMenu(hud)
+        }
+        if (showFullscreenClock) {
+            Box(
+                Modifier.align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top))
+                    .height(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                ClockBatteryPill()
+            }
+        }
+    }
+}
+
+/** A minimalist clock and battery badge shown only with full-screen playback controls. */
+@Composable
+private fun ClockBatteryPill() {
+    val context = LocalContext.current
+    var currentTime by remember { mutableStateOf(java.time.LocalTime.now().format(clockFormat)) }
+    var batteryPercent by remember { mutableStateOf<Int?>(null) }
+    var charging by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            val nowMillis = System.currentTimeMillis()
+            currentTime = java.time.LocalTime.now().format(clockFormat)
+            delay(60_000L - nowMillis % 60_000L)
+        }
+    }
+
+    DisposableEffect(context) {
+        fun updateBattery(intent: Intent?) {
+            if (intent == null) return
+            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            if (level >= 0 && scale > 0) {
+                batteryPercent = (level * 100f / scale).roundToInt().coerceIn(0, 100)
+            }
+            val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL
+        }
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                updateBattery(intent)
+            }
+        }
+        val sticky = ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+        updateBattery(sticky)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+
+    val lowBattery = batteryPercent != null && batteryPercent!! <= 15 && !charging
+    val batteryTint = when {
+        charging -> Color(0xFFB9F6CA)
+        lowBattery -> Color(0xFFFFCC80)
+        else -> Color.White.copy(alpha = 0.92f)
+    }
+
+    Row(
+        Modifier.clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.58f))
+            .padding(horizontal = 11.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            currentTime,
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+        batteryPercent?.let { percent ->
+            Icon(
+                imageVector = when {
+                    charging -> Icons.Filled.BatteryChargingFull
+                    lowBattery -> Icons.Filled.BatteryAlert
+                    else -> Icons.Filled.BatteryStd
+                },
+                contentDescription = if (charging) "正在充电，剩余电量 $percent%" else "剩余电量 $percent%",
+                tint = batteryTint,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "$percent%",
+                color = batteryTint,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
         }
     }
 }
