@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="docs/icon.svg" width="128" height="128" alt="红果去广">
+  <img src="docs/icon.webp" width="128" height="128" alt="开心果">
 </p>
 
-<h1 align="center">红果去广 Android</h1>
+<h1 align="center">开心果 Android</h1>
 
 <p align="center">
   <b>无广告、不烧心</b><br>
   红果短剧的极简 Android 客户端，华为手机也能用
 </p>
 
-红果去广是基于开源红果短剧客户端改造的 Android 版本：没有广告、没有弹窗，打开就是剧。每次冷启动会静默检查 GitHub 正式版更新，有新版本时可直接在应用内下载并校验安装包。界面用 Jetpack Compose 写成，播放用 Media3 ExoPlayer，支持画中画、锁屏和通知栏控制。不依赖谷歌服务，华为、荣耀、小米、OPPO、vivo 的手机都能装。
+开心果是基于开源红果短剧客户端改造的 Android 版本：没有广告、没有弹窗，打开就是剧。每次冷启动会静默检查 GitHub 正式版更新，有新版本时可直接在应用内下载并校验安装包。界面用 Jetpack Compose 写成，播放用 Media3 ExoPlayer，支持画中画、锁屏和通知栏控制。不依赖谷歌服务，华为、荣耀、小米、OPPO、vivo 的手机都能装。
 
 ![Android 手机上的推荐、剧集详情和播放](docs/screenshots/phone.webp)
 
@@ -35,7 +35,7 @@
 
 ## 安装
 
-红果去广不在应用商店上架。到 [Releases](https://github.com/xiaobei206/kaixinguo-android/releases/latest) 下载 APK，传到手机上点开安装，或者直接用手机浏览器打开这个页面下载：
+开心果不在应用商店上架。到 [Releases](https://github.com/xiaobei206/kaixinguo-android/releases/latest) 下载 APK，传到手机上点开安装，或者直接用手机浏览器打开这个页面下载：
 
 | 下载哪个 | 适合 |
 | --- | --- |
@@ -52,14 +52,14 @@
 
 | 系统 | 怎么装 |
 | --- | --- |
-| EMUI、HarmonyOS 2 / 3 / 4 | 和其他安卓手机一样，直接装 APK。红果去广不用谷歌服务（GMS），这些系统都能正常运行 |
+| EMUI、HarmonyOS 2 / 3 / 4 | 和其他安卓手机一样，直接装 APK。开心果不用谷歌服务（GMS），这些系统都能正常运行 |
 | HarmonyOS NEXT / HarmonyOS 5 及以后（「纯血鸿蒙」） | 系统本身不能装 APK。可以试试应用市场里的「卓易通」等安卓兼容环境；我们没有在这类环境里测试过 |
 
 华为手机上的几点提示：
 
 - 第一次装 APK 时，系统可能要求在「设置 › 系统和更新 › 纯净模式」里关掉纯净模式，或者允许「安装未知应用」。
-- 熄屏后还想接着听，在「设置 › 电池 › 启动管理」里把红果去广设成「手动管理」并允许后台活动，否则系统可能清掉后台播放。
-- 画中画小窗需要在「设置 › 应用 › 红果去广」里允许「画中画」（有的系统叫「悬浮窗」）。
+- 熄屏后还想接着听，在「设置 › 电池 › 启动管理」里把开心果设成「手动管理」并允许后台活动，否则系统可能清掉后台播放。
+- 画中画小窗需要在「设置 › 应用 › 开心果」里允许「画中画」（有的系统叫「悬浮窗」）。
 
 ### 自己构建
 
