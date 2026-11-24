@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
 
+# Prevent rapid main pushes from publishing release tags concurrently.
+concurrency:
+  group: kaixinguo-android-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Test patched SDK and build APKs
@@ -251,6 +256,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          make_latest: legacy
           name: 红果去广 Android v${{ steps.version.outputs.version }}
           body: ${{ steps.release_notes.outputs.body }}
           files: |

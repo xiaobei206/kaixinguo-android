@@ -16,6 +16,40 @@ class AppUpdaterTest {
     }
 
     @Test
+    fun releaseSelectionUsesHighestStableVersionEvenWhenOlderReleaseWasPublishedLater() {
+        val releases = org.json.JSONArray()
+            .put(
+                org.json.JSONObject()
+                    .put("tag_name", "v0.4.30")
+                    .put("draft", false)
+                    .put("prerelease", false)
+                    .put("published_at", "2026-11-24T13:10:34Z"),
+            )
+            .put(
+                org.json.JSONObject()
+                    .put("tag_name", "v0.4.29")
+                    .put("draft", false)
+                    .put("prerelease", false)
+                    .put("published_at", "2026-11-24T13:11:38Z"),
+            )
+            .put(
+                org.json.JSONObject()
+                    .put("tag_name", "v0.4.99")
+                    .put("draft", false)
+                    .put("prerelease", true),
+            )
+
+        assertEquals("v0.4.30", AppUpdater.highestStableRelease(releases)?.optString("tag_name"))
+    }
+
+    @Test
+    fun releaseVersionComparisonUsesNumericSegments() {
+        assertEquals(1, AppUpdater.compareReleaseVersions("v0.4.30", "v0.4.29"))
+        assertEquals(-1, AppUpdater.compareReleaseVersions("v0.10.0", "v0.11.0"))
+        assertEquals(1, AppUpdater.compareReleaseVersions("1.0.0", "0.99.99"))
+    }
+
+    @Test
     fun installAlwaysRequiresExplicitConfirmationOnAndroid12AndLater() {
         assertEquals(
             PackageInstaller.SessionParams.USER_ACTION_REQUIRED,
