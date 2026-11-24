@@ -253,10 +253,14 @@ class MainActivity : ComponentActivity() {
 
     private fun registerInstallStateReceiver() {
         if (installStateReceiverRegistered) return
+        val filter = IntentFilter().apply {
+            addAction(AppUpdater.ACTION_INSTALL_STATE_CHANGED)
+            addAction(AppUpdater.ACTION_INSTALL_CONFIRMATION_REQUESTED)
+        }
         ContextCompat.registerReceiver(
             this,
             installStateReceiver,
-            IntentFilter(AppUpdater.ACTION_INSTALL_STATE_CHANGED),
+            filter,
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         installStateReceiverRegistered = true
