@@ -48,6 +48,14 @@ class AppUpdaterTest {
     }
 
     @Test
+    fun abortedInstallFailureKeepsTheSystemPermissionRejectionReason() {
+        assertEquals(
+            "系统安装已取消：User rejected permissions（状态码 ${PackageInstaller.STATUS_FAILURE_ABORTED}）",
+            AppUpdater.installFailureMessage(PackageInstaller.STATUS_FAILURE_ABORTED, "User rejected permissions"),
+        )
+    }
+
+    @Test
     fun installStatusPendingIntentKeepsPreAndroid12Compatibility() {
         val flags = AppUpdater.installStatusPendingIntentFlags(Build.VERSION_CODES.R)
 

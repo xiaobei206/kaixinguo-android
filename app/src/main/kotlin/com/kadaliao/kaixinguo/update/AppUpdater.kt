@@ -40,6 +40,8 @@ object AppUpdater {
     private const val TAG = "HongguoQuGuangUpdater"
 
     const val ACTION_INSTALL_STATE_CHANGED = "com.kadaliao.kaixinguo.UPDATE_INSTALL_STATE_CHANGED"
+    const val ACTION_INSTALL_CONFIRMATION_REQUESTED = "com.kadaliao.kaixinguo.UPDATE_INSTALL_CONFIRMATION_REQUESTED"
+    const val EXTRA_INSTALL_CONFIRMATION = "install_confirmation"
     const val EXTRA_INSTALL_STATUS = "install_status"
     const val EXTRA_INSTALL_MESSAGE = "install_message"
 

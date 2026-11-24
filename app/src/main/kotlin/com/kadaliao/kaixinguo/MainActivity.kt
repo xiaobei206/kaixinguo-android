@@ -76,16 +76,43 @@ class MainActivity : ComponentActivity() {
     private var pipWanted = false
     private var controller: ListenableFuture<MediaController>? = null
     private var installStateReceiverRegistered = false
+    private var pendingInstallConfirmation: Intent? = null
+    private var pendingInstallConfirmationSessionId: Int? = null
     private var diagnosticReceiver: PhoneDiagnosticReceiver? = null
     private val diagnosticPrefs by lazy { getSharedPreferences("diagnostic_receiver", Context.MODE_PRIVATE) }
     private val installStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != AppUpdater.ACTION_INSTALL_STATE_CHANGED) return
-            handleInstallStatus(
-                sessionId = intent.getIntExtra(UpdateInstallReceiver.EXTRA_SESSION_ID, -1),
-                status = intent.getIntExtra(AppUpdater.EXTRA_INSTALL_STATUS, PackageInstaller.STATUS_FAILURE),
-                message = intent.getStringExtra(AppUpdater.EXTRA_INSTALL_MESSAGE).orEmpty(),
-            )
+            when (intent.action) {
+                AppUpdater.ACTION_INSTALL_CONFIRMATION_REQUESTED -> {
+                    val sessionId = intent.getIntExtra(UpdateInstallReceiver.EXTRA_SESSION_ID, -1)
+                    val confirmation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(AppUpdater.EXTRA_INSTALL_CONFIRMATION, Intent::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(AppUpdater.EXTRA_INSTALL_CONFIRMATION)
+                    }
+                    if (sessionId < 0 || confirmation == null) {
+                        Log.w("HongguoQuGuangUpdater", "Install confirmation handoff was incomplete; sessionId=$sessionId")
+                        if (sessionId >= 0) {
+                            AppUpdater.recordInstallStatus(
+                                this@MainActivity,
+                                sessionId,
+                                PackageInstaller.STATUS_FAILURE,
+                                "系统未提供有效的安装确认界面",
+                            )
+                        }
+                        return
+                    }
+                    pendingInstallConfirmation = confirmation
+                    pendingInstallConfirmationSessionId = sessionId
+                    launchPendingInstallConfirmation()
+                }
+                AppUpdater.ACTION_INSTALL_STATE_CHANGED -> handleInstallStatus(
+                    sessionId = intent.getIntExtra(UpdateInstallReceiver.EXTRA_SESSION_ID, -1),
+                    status = intent.getIntExtra(AppUpdater.EXTRA_INSTALL_STATUS, PackageInstaller.STATUS_FAILURE),
+                    message = intent.getStringExtra(AppUpdater.EXTRA_INSTALL_MESSAGE).orEmpty(),
+                )
+            }
         }
     }
 
@@ -149,6 +176,7 @@ class MainActivity : ComponentActivity() {
                 handleInstallStatus(sessionId, it.status, it.message)
             }
         }
+        launchPendingInstallConfirmation()
     }
 
     override fun onDestroy() {
@@ -191,6 +219,36 @@ class MainActivity : ComponentActivity() {
     private fun stopDiagnosticReceiver() {
         diagnosticReceiver?.stop()
         diagnosticReceiver = null
+    }
+
+    /**
+     * Launches PackageInstaller's confirmation from the visible Activity, not from
+     * the manifest BroadcastReceiver. This avoids OEM/background-activity launch races.
+     */
+    private fun launchPendingInstallConfirmation() {
+        val confirmation = pendingInstallConfirmation ?: return
+        val sessionId = pendingInstallConfirmationSessionId ?: return
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+
+        // Clear first so Activity recreation or a repeated resume cannot launch it twice.
+        pendingInstallConfirmation = null
+        pendingInstallConfirmationSessionId = null
+        Log.i(
+            "HongguoQuGuangUpdater",
+            "Launching system install confirmation from MainActivity; sessionId=$sessionId " +
+                "manufacturer=${Build.MANUFACTURER}, model=${Build.MODEL}",
+        )
+        runCatching { startActivity(confirmation) }
+            .onFailure { error ->
+                Log.e("HongguoQuGuangUpdater", "Could not open system install confirmation from Activity", error)
+                AppUpdater.recordInstallStatus(
+                    this,
+                    sessionId,
+                    PackageInstaller.STATUS_FAILURE,
+                    "无法打开系统安装确认界面",
+                )
+                Toast.makeText(this, "无法打开系统安装确认界面，请返回应用重试", Toast.LENGTH_LONG).show()
+            }
     }
 
     private fun registerInstallStateReceiver() {
