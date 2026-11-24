@@ -81,9 +81,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.BatteryAlert
-import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FastForward
@@ -1007,7 +1004,6 @@ private fun ClockBatteryPill() {
     val context = LocalContext.current
     var currentTime by remember { mutableStateOf(java.time.LocalTime.now().format(clockFormat)) }
     var batteryPercent by remember { mutableStateOf<Int?>(null) }
-    var charging by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -1020,14 +1016,11 @@ private fun ClockBatteryPill() {
     DisposableEffect(context) {
         fun updateBattery(intent: Intent?) {
             if (intent == null) return
-            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            val level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
             if (level >= 0 && scale > 0) {
                 batteryPercent = (level * 100f / scale).roundToInt().coerceIn(0, 100)
             }
-            val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-            charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL
         }
 
         val receiver = object : BroadcastReceiver() {
@@ -1045,13 +1038,6 @@ private fun ClockBatteryPill() {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    val lowBattery = batteryPercent != null && batteryPercent!! <= 15 && !charging
-    val batteryTint = when {
-        charging -> Color(0xFFB9F6CA)
-        lowBattery -> Color(0xFFFFCC80)
-        else -> Color.White.copy(alpha = 0.92f)
-    }
-
     Row(
         Modifier.clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.58f))
@@ -1067,16 +1053,12 @@ private fun ClockBatteryPill() {
             maxLines = 1,
         )
         batteryPercent?.let { percent ->
-            Icon(
-                imageVector = when {
-                    charging -> Icons.Filled.BatteryChargingFull
-                    lowBattery -> Icons.Filled.BatteryAlert
-                    else -> Icons.Filled.BatteryStd
-                },
-                contentDescription = if (charging) "正在充电，剩余电量 $percent%" else "剩余电量 $percent%",
-                tint = batteryTint,
-                modifier = Modifier.size(18.dp),
-            )
+            val batteryTint = when {
+                percent < 20 -> Color(0xFFF44336)
+                percent < 40 -> Color(0xFFFFC107)
+                else -> Color(0xFF4CAF50)
+            }
+            HorizontalBatteryIcon(percent = percent, tint = batteryTint)
             Text(
                 "$percent%",
                 color = batteryTint,
@@ -1084,6 +1066,60 @@ private fun ClockBatteryPill() {
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
             )
+        }
+    }
+}
+
+/** Horizontal battery with a live fill level and a color tied to the percentage. */
+@Composable
+private fun HorizontalBatteryIcon(percent: Int, tint: Color) {
+    Canvas(Modifier.size(width = 26.dp, height = 14.dp)) {
+        val border = 1.25.dp.toPx()
+        val terminalWidth = 2.2.dp.toPx()
+        val bodyLeft = border / 2f
+        val bodyTop = border / 2f
+        val bodyRight = size.width - terminalWidth
+        val bodyBottom = size.height - border / 2f
+        val bodyWidth = bodyRight - bodyLeft
+        val bodyHeight = bodyBottom - bodyTop
+        val outlineColor = Color.White.copy(alpha = 0.78f)
+
+        drawRoundRect(
+            color = outlineColor,
+            topLeft = Offset(bodyLeft, bodyTop),
+            size = Size(bodyWidth, bodyHeight),
+            cornerRadius = CornerRadius(2.2.dp.toPx()),
+            style = Stroke(width = border),
+        )
+        drawRoundRect(
+            color = outlineColor,
+            topLeft = Offset(bodyRight, size.height * 0.32f),
+            size = Size(terminalWidth, size.height * 0.36f),
+            cornerRadius = CornerRadius(terminalWidth * 0.3f),
+        )
+
+        val inset = border + 1.dp.toPx()
+        val innerLeft = bodyLeft + inset
+        val innerTop = bodyTop + inset
+        val innerWidth = (bodyWidth - inset * 2f).coerceAtLeast(0f)
+        val innerHeight = (bodyHeight - inset * 2f).coerceAtLeast(0f)
+        if (innerWidth > 0f && innerHeight > 0f) {
+            val innerRadius = CornerRadius(1.dp.toPx())
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.18f),
+                topLeft = Offset(innerLeft, innerTop),
+                size = Size(innerWidth, innerHeight),
+                cornerRadius = innerRadius,
+            )
+            val fillWidth = innerWidth * (percent.coerceIn(0, 100) / 100f)
+            if (fillWidth > 0f) {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(innerLeft, innerTop),
+                    size = Size(fillWidth, innerHeight),
+                    cornerRadius = CornerRadius(1.dp.toPx()),
+                )
+            }
         }
     }
 }
