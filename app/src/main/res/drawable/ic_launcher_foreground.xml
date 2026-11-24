@@ -1,60 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="1024"
-    android:viewportHeight="1024">
-
-    <!-- Scale all foreground art into Android's adaptive-icon safe zone; keep gradient background full bleed. -->
-    <group
-        android:scaleX="0.78"
-        android:scaleY="0.78"
-        android:pivotX="512"
-        android:pivotY="512">
-    <!-- Small glints stay inside the adaptive icon's safe area. -->
-    <path android:fillColor="#E6FFFBE9"
-        android:pathData="M270,290 L286,324 L320,340 L286,356 L270,390 L254,356 L220,340 L254,324 Z" />
-    <path android:fillColor="#E0FFFBE9"
-        android:pathData="M748,657 L759,680 L782,691 L759,702 L748,725 L737,702 L714,691 L737,680 Z" />
-
-    <!-- Soft offset shadow keeps the cream shell distinct from the gradient. -->
-    <group android:translateX="8" android:translateY="18">
-        <path android:fillColor="#40301A4D"
-            android:pathData="M448,205 C576,186 713,288 754,424 C794,556 720,706 610,777 C506,843 361,766 285,646 C207,524 247,371 360,279 C390,254 416,221 448,205 Z" />
-    </group>
-
-    <!-- Cream shell, vivid green kernel, and warm seed. -->
-    <path android:fillColor="#FFFFF6DF"
-        android:pathData="M448,205 C576,186 713,288 754,424 C794,556 720,706 610,777 C506,843 361,766 285,646 C207,524 247,371 360,279 C390,254 416,221 448,205 Z" />
-    <path android:fillColor="#FF83DE73"
-        android:pathData="M451,260 C560,245 675,327 708,440 C737,541 674,668 584,725 C503,775 391,704 332,598 C272,489 301,390 389,314 C407,295 430,268 451,260 Z" />
-    <path android:fillColor="#00000000"
-        android:strokeColor="#FF238D61"
-        android:strokeWidth="16"
-        android:strokeLineCap="round"
-        android:pathData="M414,318 C435,391 467,466 493,527 C517,585 549,642 585,689" />
-    <path android:fillColor="#FFFFD66E"
-        android:pathData="M471,370 C526,354 584,395 598,452 C612,510 581,567 536,585 C496,600 454,562 438,516 C422,469 435,398 471,370 Z" />
-
-    <!-- The play mark turns the pistachio into a media-app logo at small sizes. -->
-    <path android:fillColor="#FF1D6E5D"
-        android:pathData="M484,431 C484,421 494,417 503,423 L558,459 C567,464 567,475 558,481 L503,517 C494,523 484,518 484,508 Z" />
-
-    <!-- A fresh leaf and vein finish the silhouette. -->
-    <path android:fillColor="#FFC5FF83"
-        android:strokeColor="#FF4AAE64"
-        android:strokeWidth="9"
-        android:strokeLineJoin="round"
-        android:pathData="M605,252 C620,207 668,174 714,184 C704,229 666,263 623,271 Z" />
-    <path android:fillColor="#00000000"
-        android:strokeColor="#FF4AAE64"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:pathData="M620,258 C648,237 674,212 699,193" />
-    <path android:fillColor="#00000000"
-        android:strokeColor="#99FFFFFF"
-        android:strokeWidth="15"
-        android:strokeLineCap="round"
-        android:pathData="M385,300 C409,278 429,262 447,251" />
-    </group>
-</vector>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/kaixinguo_icon"
+    android:insetLeft="18dp"
+    android:insetTop="18dp"
+    android:insetRight="18dp"
+    android:insetBottom="18dp" />
