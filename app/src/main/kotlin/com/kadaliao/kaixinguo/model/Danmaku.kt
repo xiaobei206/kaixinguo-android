@@ -88,6 +88,19 @@ class Lanes(comments: List<Comment>, val screen: Float, lanes: Int = LANE_COUNT)
      * Calls `each` with the index of each comment on the screen `ms` into the
      * episode, and how far its left edge is from the screen's, in ems.
      */
+    /**
+     * Opacity based on the comment's position, not elapsed wall-clock time:
+     * fade in over the first em at the right edge, then fade out over the
+     * final 2.5 ems as the trailing edge leaves the left side of the screen.
+     */
+    fun alpha(flight: Flight, x: Float): Float {
+        if (screen <= 0f) return 0f
+        val entering = (screen - x).coerceIn(0f, 1f)
+        val trailingEdge = x + flight.width
+        val leaving = (trailingEdge / 2.5f).coerceIn(0f, 1f)
+        return minOf(entering, leaving)
+    }
+
     inline fun at(ms: Long, each: (Int, Float) -> Unit) {
         for (i in flights.indices) {
             val f = flights[i]

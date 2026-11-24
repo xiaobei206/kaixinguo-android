@@ -151,6 +151,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -815,7 +816,7 @@ private fun releasePreviewBitmap(bitmap: Bitmap?, scope: CoroutineScope) {
     }
 }
 
-private val danmakuStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Normal)
+private val danmakuStyle = TextStyle(color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, fontWeight = FontWeight.Light)
 
 /**
  * DanmakuLayer flies the episode's comments right to left across the top
@@ -846,16 +847,20 @@ private fun DanmakuLayer(modifier: Modifier) {
             val lane = em * 1.6f
             val lanes = Lanes(comments, size.width / em)
             val texts = arrayOfNulls<TextLayoutResult>(lanes.flights.size) // each measured as it first shows
-            val edge = Stroke(width = 1.5.dp.toPx(), join = StrokeJoin.Round)
+            val edge = Stroke(width = 1.dp.toPx(), join = StrokeJoin.Round)
+            val edgeColor = Color.Black.copy(alpha = 0.3f)
+            val glow = Shadow(color = Color.Black.copy(alpha = 0.28f), blurRadius = 2f * density)
             onDrawBehind {
                 val ms = now
                 if (ms < 0) return@onDrawBehind
                 lanes.at(ms) { i, x ->
                     val f = lanes.flights[i]
+                    val alpha = lanes.alpha(f, x)
+                    if (alpha <= 0f) return@at
                     val text = texts[i] ?: measurer.measure(f.comment.text, danmakuStyle, softWrap = false, maxLines = 1).also { texts[i] = it }
                     val at = Offset(x * em, f.lane * lane + (lane - text.size.height) / 2)
-                    drawText(text, Color.Black.copy(alpha = 0.55f), at, drawStyle = edge)
-                    drawText(text, topLeft = at)
+                    drawText(text, edgeColor, at, alpha = alpha, drawStyle = edge)
+                    drawText(text, topLeft = at, alpha = alpha, shadow = glow, drawStyle = Fill)
                 }
             }
         },

@@ -58,6 +58,22 @@ class DanmakuTest {
         assertTrue(Lanes(comments, 0f).flights.isEmpty())
     }
 
+    @Test
+    fun edgeFadesFollowTextPosition() {
+        val lanes = Lanes(listOf(Comment("淡入淡出", 0)), 20f)
+        val flight = lanes.flights.single()
+
+        // Nothing visible at the instant it touches the right edge; fully in after one em.
+        assertEquals(0f, lanes.alpha(flight, 20f), 0.001f)
+        assertEquals(1f, lanes.alpha(flight, 19f), 0.001f)
+
+        // Fade-out starts when the trailing edge is 2.5 ems from the left;
+        // it reaches zero as that edge leaves the screen.
+        assertEquals(1f, lanes.alpha(flight, 2.5f - flight.width), 0.001f)
+        assertEquals(0.5f, lanes.alpha(flight, 1.25f - flight.width), 0.001f)
+        assertEquals(0f, lanes.alpha(flight, -flight.width), 0.001f)
+    }
+
     /**
      * An episode's comments come a stretch at a time, past stretches with
      * none, each once and on one line; starting the episode again asks for
