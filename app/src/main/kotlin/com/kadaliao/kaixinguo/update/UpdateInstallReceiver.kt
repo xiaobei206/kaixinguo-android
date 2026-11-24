@@ -36,18 +36,35 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                     intent.getParcelableExtra(Intent.EXTRA_INTENT)
                 }
                 if (confirmation != null) {
+                    // PackageInstaller supplies the exact system confirmation Intent here.
+                    // Launch it directly from this callback, as prescribed by the API, rather
+                    // than relaying the nested Intent through a second app-local broadcast.
+                    confirmation.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     Log.i(
                         "HongguoQuGuangUpdater",
-                        "Forwarding system install confirmation to foreground Activity; " +
+                        "Launching PackageInstaller confirmation directly from status receiver; " +
                             "sessionId=$sessionId action=${confirmation.action} " +
-                            "component=${confirmation.component?.flattenToShortString()}",
+                            "component=${confirmation.component?.flattenToShortString()} " +
+                            "manufacturer=${Build.MANUFACTURER} model=${Build.MODEL} sdk=${Build.VERSION.SDK_INT}",
                     )
-                    context.sendBroadcast(
-                        Intent(AppUpdater.ACTION_INSTALL_CONFIRMATION_REQUESTED)
-                            .setPackage(context.packageName)
-                            .putExtra(EXTRA_SESSION_ID, sessionId)
-                            .putExtra(AppUpdater.EXTRA_INSTALL_CONFIRMATION, confirmation),
-                    )
+                    runCatching { context.startActivity(confirmation) }
+                        .onSuccess {
+                            Log.i("HongguoQuGuangUpdater", "PackageInstaller confirmation startActivity returned; sessionId=$sessionId")
+                        }
+                        .onFailure { error ->
+                            Log.e("HongguoQuGuangUpdater", "Could not launch PackageInstaller confirmation", error)
+                            AppUpdater.recordInstallStatus(
+                                context,
+                                sessionId,
+                                PackageInstaller.STATUS_FAILURE,
+                                "无法启动系统安装确认界面：${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                            )
+                            Toast.makeText(
+                                context,
+                                "无法启动系统安装确认界面，请点击重试安装",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
                 } else {
                     Log.w("HongguoQuGuangUpdater", "Install confirmation status had no Intent")
                     AppUpdater.recordInstallStatus(

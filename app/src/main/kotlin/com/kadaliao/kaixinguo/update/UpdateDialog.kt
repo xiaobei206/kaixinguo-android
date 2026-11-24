@@ -69,7 +69,7 @@ fun UpdateDialog(
                         Text("下载与校验完成，正在提交系统安装，等待 Android 返回安装结果。")
                     }
                     is UpdateUiState.AwaitingConfirmation -> Text(
-                        "已打开系统安装确认页面，请在系统页面完成安装。返回应用后会显示最终结果。"
+                        "系统要求确认安装，正在请求系统安装器。如果没有弹出安装页面，请点击「重试安装」重新发起。"
                     )
                     is UpdateUiState.Failed -> Text("更新失败：${state.message}")
                 }
@@ -79,6 +79,7 @@ fun UpdateDialog(
             when (state) {
                 is UpdateUiState.Available -> Button(onClick = { onUpdate(info) }) { Text("立即更新") }
                 is UpdateUiState.Failed -> Button(onClick = { onRetry(info) }) { Text("重试安装") }
+                is UpdateUiState.AwaitingConfirmation -> Button(onClick = { onRetry(info) }) { Text("重试安装") }
                 is UpdateUiState.AwaitingPermission -> Button(onClick = { onUpdate(info) }) { Text("打开授权设置") }
                 else -> {}
             }
