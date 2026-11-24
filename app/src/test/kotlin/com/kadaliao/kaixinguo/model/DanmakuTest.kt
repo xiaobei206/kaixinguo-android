@@ -76,8 +76,8 @@ class DanmakuTest {
         // Narrow layouts keep a minimum fade width instead of becoming abrupt.
         val narrow = Lanes(listOf(Comment("好看", 0)), 20f)
         val narrowFlight = narrow.flights.single()
-        assertEquals(0.5f, narrow.alpha(narrowFlight, 18f), 0.001f)
-        assertEquals(0.5f, narrow.alpha(narrowFlight, 1.5f - narrowFlight.width), 0.001f)
+        assertEquals(0.5f, narrow.alpha(narrowFlight, 19f), 0.001f)
+        assertEquals(0.5f, narrow.alpha(narrowFlight, 1.6f - narrowFlight.width), 0.001f)
     }
 
     /**
