@@ -16,6 +16,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.coroutineContext
 
 data class UpdateInfo(
@@ -38,6 +39,7 @@ object AppUpdater {
     private const val READ_TIMEOUT_MS = 20_000
     private const val INSTALL_STATUS_PREFS = "update_install_status"
     private const val TAG = "HongguoQuGuangUpdater"
+    private val liveInstallConfirmationIntents = ConcurrentHashMap<Int, Intent>()
 
     const val ACTION_INSTALL_STATE_CHANGED = "com.kadaliao.kaixinguo.UPDATE_INSTALL_STATE_CHANGED"
     const val EXTRA_INSTALL_STATUS = "install_status"
@@ -290,9 +292,10 @@ object AppUpdater {
 
     private fun installConfirmationPreferenceKey(sessionId: Int) = "confirmation_$sessionId"
 
-    /** Persist the system-provided confirmation Intent so it can be launched from a user tap. */
+    /** Keep the exact callback Intent in memory; the URI copy is only a process-death fallback. */
     fun saveInstallConfirmation(context: Context, sessionId: Int, confirmation: Intent) {
         require(sessionId >= 0)
+        liveInstallConfirmationIntents[sessionId] = Intent(confirmation)
         val serialized = confirmation.toUri(Intent.URI_INTENT_SCHEME)
         context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE).edit()
             .putString(installConfirmationPreferenceKey(sessionId), serialized)
@@ -300,18 +303,35 @@ object AppUpdater {
         Log.i(
             TAG,
             "Saved PackageInstaller confirmation for foreground launch; sessionId=$sessionId " +
-                "action=${confirmation.action} component=${confirmation.component?.flattenToShortString()}",
+                "action=${confirmation.action} component=${confirmation.component?.flattenToShortString()} " +
+                "data=${confirmation.data} flags=0x${confirmation.flags.toString(16)} " +
+                "extras=${confirmation.extras?.keySet()?.sorted()?.joinToString()}",
         )
     }
 
     fun loadInstallConfirmation(context: Context, sessionId: Int): Intent? {
         if (sessionId < 0) return null
+        liveInstallConfirmationIntents[sessionId]?.let {
+            Log.i(TAG, "Using original in-memory PackageInstaller confirmation Intent for sessionId=$sessionId")
+            return Intent(it)
+        }
         val serialized = context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE)
             .getString(installConfirmationPreferenceKey(sessionId), null) ?: return null
         return runCatching { Intent.parseUri(serialized, Intent.URI_INTENT_SCHEME) }
+            .onSuccess { Log.w(TAG, "Restoring serialized PackageInstaller confirmation after process recreation; sessionId=$sessionId") }
             .onFailure { Log.e(TAG, "Could not restore PackageInstaller confirmation for sessionId=$sessionId", it) }
             .getOrNull()
     }
+
+    internal fun installStatusDetail(
+        message: String,
+        otherPackage: String,
+        developerVerificationReason: String,
+    ): String = listOfNotNull(
+        message.takeIf { it.isNotBlank() },
+        otherPackage.takeIf { it.isNotBlank() }?.let { "阻止安装的包：$it" },
+        developerVerificationReason.takeIf { it.isNotBlank() }?.let { "开发者验证失败原因：$it" },
+    ).joinToString("；")
 
     fun readInstallStatus(context: Context, sessionId: Int): UpdateInstallStatus? {
         val prefs = context.getSharedPreferences(INSTALL_STATUS_PREFS, Context.MODE_PRIVATE)
@@ -332,6 +352,7 @@ object AppUpdater {
             .putString("message_$sessionId", message)
         if (status != PackageInstaller.STATUS_PENDING_USER_ACTION) {
             statusEditor.remove(installConfirmationPreferenceKey(sessionId))
+            liveInstallConfirmationIntents.remove(sessionId)
         }
         statusEditor.commit()
 

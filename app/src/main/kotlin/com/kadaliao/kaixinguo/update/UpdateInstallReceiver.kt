@@ -25,6 +25,7 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                 "developerVerificationReason=$developerVerificationReason, " +
                 "extras=${intent.extras?.keySet()?.sorted()?.joinToString()}",
         )
+        val detailMessage = AppUpdater.installStatusDetail(message, otherPackage, developerVerificationReason)
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirmation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -60,14 +61,14 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                 Toast.makeText(context, "红果去广已更新", Toast.LENGTH_LONG).show()
             }
             else -> {
-                AppUpdater.recordInstallStatus(context, sessionId, status, message)
+                AppUpdater.recordInstallStatus(context, sessionId, status, detailMessage)
                 Log.w(
                     "HongguoQuGuangUpdater",
-                    "Package update failed: status=$status message=$message sessionId=$sessionId",
+                    "Package update failed: status=$status message=$message details=$detailMessage sessionId=$sessionId",
                 )
                 Toast.makeText(
                     context,
-                    if (message.isBlank()) "安装未完成（状态码 $status），可重试安装" else "安装未完成：$message",
+                    if (detailMessage.isBlank()) "安装未完成（状态码 $status），可重试安装" else "安装未完成：$detailMessage",
                     Toast.LENGTH_LONG,
                 ).show()
             }

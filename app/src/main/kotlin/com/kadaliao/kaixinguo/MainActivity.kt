@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -105,6 +106,7 @@ class MainActivity : ComponentActivity() {
                             onCancel = ::cancelUpdate,
                             onRetry = ::beginUpdate,
                             onContinueInstall = ::continueInstallConfirmation,
+                            onOpenSystemInstaller = ::openSystemInstallerFallback,
                         )
                     }
                 }
@@ -372,6 +374,43 @@ class MainActivity : ComponentActivity() {
                     launchError = "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
                 )
             }
+    }
+
+    /**
+     * Opens the verified cached APK with Android's regular package installer.
+     * This is a separate OEM-compatible path for devices that abort PackageInstaller sessions.
+     */
+    private fun openSystemInstallerFallback(info: UpdateInfo) {
+        lifecycleScope.launch {
+            try {
+                val apk = withContext(Dispatchers.IO) {
+                    AppUpdater.findVerifiedCachedApk(this@MainActivity, info)
+                        ?: AppUpdater.download(this@MainActivity, info) { }
+                }
+                val uri = FileProvider.getUriForFile(
+                    this@MainActivity,
+                    "$packageName.updateprovider",
+                    apk,
+                )
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                Log.i(
+                    "HongguoQuGuangUpdater",
+                    "Opening verified APK with regular system installer; " +
+                        "manufacturer=${Build.MANUFACTURER}, model=${Build.MODEL}, " +
+                        "version=${info.versionName}, apk=${apk.name}, bytes=${apk.length()}",
+                )
+                startActivity(intent)
+            } catch (error: Exception) {
+                Log.e("HongguoQuGuangUpdater", "Could not open verified APK with regular system installer", error)
+                updateState = UpdateUiState.Failed(
+                    info,
+                    "无法打开系统安装器：${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                )
+            }
+        }
     }
 
     private fun beginUpdate(info: UpdateInfo) {

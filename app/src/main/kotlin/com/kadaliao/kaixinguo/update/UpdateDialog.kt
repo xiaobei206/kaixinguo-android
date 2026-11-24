@@ -28,12 +28,14 @@ sealed interface UpdateUiState {
 }
 
 @Composable
+/** Adds an explicit OEM-installer fallback after a session-based install aborts. */
 fun UpdateDialog(
     state: UpdateUiState,
     onUpdate: (UpdateInfo) -> Unit,
     onCancel: () -> Unit,
     onRetry: (UpdateInfo) -> Unit,
     onContinueInstall: (Int) -> Unit,
+    onOpenSystemInstaller: (UpdateInfo) -> Unit,
 ) {
     val info = when (state) {
         is UpdateUiState.Available -> state.info
@@ -73,7 +75,15 @@ fun UpdateDialog(
                         Text("安装包已准备好，系统要求确认安装。点击下方「继续安装」打开系统安装器。")
                         state.launchError?.let { Text("上次打开失败：$it") }
                     }
-                    is UpdateUiState.Failed -> Text("更新失败：${state.message}")
+                    is UpdateUiState.Failed -> {
+                        Text("更新失败：${state.message}")
+                        OutlinedButton(
+                            onClick = { onOpenSystemInstaller(info) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("改用系统安装器打开已校验 APK")
+                        }
+                    }
                 }
             }
         },

@@ -90,6 +90,22 @@ class AppUpdaterTest {
     }
 
     @Test
+    fun installCallbackDetailPreservesAllAvailableSystemReasons() {
+        assertEquals(
+            "INSTALL_FAILED_ABORTED；阻止安装的包：com.example.blocker；开发者验证失败原因：verification failed",
+            AppUpdater.installStatusDetail(
+                "INSTALL_FAILED_ABORTED",
+                "com.example.blocker",
+                "verification failed",
+            ),
+        )
+        assertEquals(
+            "User rejected permissions",
+            AppUpdater.installStatusDetail("User rejected permissions", "", ""),
+        )
+    }
+
+    @Test
     fun installStatusPendingIntentKeepsPreAndroid12Compatibility() {
         val flags = AppUpdater.installStatusPendingIntentFlags(Build.VERSION_CODES.R)
 
