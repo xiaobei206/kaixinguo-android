@@ -36,6 +36,7 @@ fun UpdateDialog(
     onRetry: (UpdateInfo) -> Unit,
     onContinueInstall: (Int) -> Unit,
     onOpenSystemInstaller: (UpdateInfo) -> Unit,
+    onOpenBrowserDownload: (UpdateInfo) -> Unit,
 ) {
     val info = when (state) {
         is UpdateUiState.Available -> state.info
@@ -50,7 +51,7 @@ fun UpdateDialog(
         state is UpdateUiState.AwaitingConfirmation
     AlertDialog(
         onDismissRequest = { if (!busy) onCancel() },
-        title = { Text("红果去广有新版本") },
+        title = { Text("开心果有新版本") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("版本 v${info.versionName} 已发布")
@@ -61,7 +62,15 @@ fun UpdateDialog(
                     )
                 }
                 when (state) {
-                    is UpdateUiState.Available -> Text("将直接在应用内下载并校验安装包。")
+                    is UpdateUiState.Available -> {
+                        Text("可直接在应用内下载并安装，也可以改用浏览器下载 APK。")
+                        OutlinedButton(
+                            onClick = { onOpenBrowserDownload(info) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("浏览器下载 APK")
+                        }
+                    }
                     is UpdateUiState.Downloading -> {
                         LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth())
                         Text("正在下载：${state.progress}%")
@@ -82,6 +91,12 @@ fun UpdateDialog(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text("改用系统安装器打开已校验 APK")
+                        }
+                        OutlinedButton(
+                            onClick = { onOpenBrowserDownload(info) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("浏览器下载 APK")
                         }
                     }
                 }

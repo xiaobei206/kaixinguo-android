@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity() {
                             onRetry = ::beginUpdate,
                             onContinueInstall = ::continueInstallConfirmation,
                             onOpenSystemInstaller = ::openSystemInstallerFallback,
+                            onOpenBrowserDownload = ::openBrowserDownload,
                         )
                     }
                 }
@@ -410,6 +411,28 @@ class MainActivity : ComponentActivity() {
                     "无法打开系统安装器：${error.javaClass.simpleName}: ${error.message.orEmpty()}",
                 )
             }
+        }
+    }
+
+    /** Opens the official versioned APK link externally, bypassing this app's installer session flow. */
+    private fun openBrowserDownload(info: UpdateInfo) {
+        val url = AppUpdater.browserDownloadUrl(info)
+        try {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+            }
+            startActivity(Intent.createChooser(browserIntent, "使用浏览器下载开心果更新"))
+            updateState = null
+            Log.i(
+                "HongguoQuGuangUpdater",
+                "Opened browser download: version=${info.versionName}, url=$url",
+            )
+        } catch (error: Exception) {
+            Log.e("HongguoQuGuangUpdater", "Could not open browser download", error)
+            updateState = UpdateUiState.Failed(
+                info,
+                "无法打开浏览器下载：${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+            )
         }
     }
 

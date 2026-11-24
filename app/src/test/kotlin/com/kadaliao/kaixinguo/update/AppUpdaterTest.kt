@@ -16,6 +16,33 @@ class AppUpdaterTest {
     }
 
     @Test
+    fun browserDownloadPrefersOfficialReleaseAssetOverMirror() {
+        val info = UpdateInfo(
+            versionName = "0.4.40",
+            versionCode = 45,
+            releaseNotes = "",
+            apkName = "kaixinguo-android-v0.4.40-arm64-v8a.apk",
+            apkUrl = "https://h.henhei.win/kaixinguo-android-v0.4.40-arm64-v8a.apk",
+            sha256 = "a".repeat(64),
+            fallbackApkUrl = "https://github.com/xiaobei206/kaixinguo-android/releases/download/v0.4.40/kaixinguo-android-v0.4.40-arm64-v8a.apk",
+        )
+        assertEquals(info.fallbackApkUrl, AppUpdater.browserDownloadUrl(info))
+    }
+
+    @Test
+    fun browserDownloadFallsBackToAvailableHttpsUrlWhenOfficialUrlIsMissing() {
+        val info = UpdateInfo(
+            versionName = "0.4.40",
+            versionCode = 45,
+            releaseNotes = "",
+            apkName = "kaixinguo-android-v0.4.40-universal.apk",
+            apkUrl = "https://h.henhei.win/kaixinguo-android-v0.4.40-universal.apk",
+            sha256 = "b".repeat(64),
+        )
+        assertEquals(info.apkUrl, AppUpdater.browserDownloadUrl(info))
+    }
+
+    @Test
     fun releaseSelectionUsesHighestStableVersionEvenWhenOlderReleaseWasPublishedLater() {
         val releases = org.json.JSONArray()
             .put(

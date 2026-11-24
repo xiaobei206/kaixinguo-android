@@ -165,6 +165,10 @@ object AppUpdater {
 
     internal fun mirrorApkUrl(apkName: String): String = "$APK_MIRROR_BASE$apkName"
 
+    /** Prefer the official GitHub release asset for external browser downloads, not the mirror. */
+    internal fun browserDownloadUrl(info: UpdateInfo): String =
+        info.fallbackApkUrl?.takeIf { it.startsWith("https://") } ?: info.apkUrl
+
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().buffered().use { input ->

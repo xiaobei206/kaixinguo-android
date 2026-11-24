@@ -5,6 +5,12 @@
     android:viewportWidth="1024"
     android:viewportHeight="1024">
 
+    <!-- Scale all foreground art into Android's adaptive-icon safe zone; keep gradient background full bleed. -->
+    <group
+        android:scaleX="0.78"
+        android:scaleY="0.78"
+        android:pivotX="512"
+        android:pivotY="512">
     <!-- Small glints stay inside the adaptive icon's safe area. -->
     <path android:fillColor="#E6FFFBE9"
         android:pathData="M270,290 L286,324 L320,340 L286,356 L270,390 L254,356 L220,340 L254,324 Z" />
@@ -50,4 +56,5 @@
         android:strokeWidth="15"
         android:strokeLineCap="round"
         android:pathData="M385,300 C409,278 429,262 447,251" />
+    </group>
 </vector>
