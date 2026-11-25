@@ -5,6 +5,8 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import dev.openhongguo.ErrorCode
 import java.util.Locale
 import dev.openhongguo.OpenhongguoException
@@ -19,16 +21,37 @@ data class SdkApiTrace(
     val httpStatus: Int? = null,
 )
 
+/** Redacts data that should never be copied into a user-shared diagnostic report. */
+internal fun sanitizeDiagnosticText(value: String): String {
+    var safe = value
+    safe = safe.replace(Regex("""(?i)(https?://[^\s"'<>?]+)\?[^\s"'<>]+""")) {
+        it.groupValues[1] + "?<query-redacted>"
+    }
+    safe = safe.replace(
+        Regex("""(?i)\b(authorization|proxy-authorization|cookie|set-cookie|access_token|refresh_token|token|device[_-]?id|anonymous[_-]?id|install[_-]?id|openudid|clientudid|cdid|klink[_-]?egdi|egdi|signature|secret|password|api[_-]?key)\b(\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^,\s;]+)(?:\s+[^,\s;]+)?"""),
+    ) {
+        it.groupValues[1] + it.groupValues[2] + "<redacted>"
+    }
+    safe = safe.replace(
+        Regex("""(?i)([?&](?:token|access_token|refresh_token|device_id|anonymous_id|install_id|signature|secret|password|api_key)=)[^&#\s]+"""),
+    ) {
+        it.groupValues[1] + "<redacted>"
+    }
+    return safe.take(1200)
+}
+
 object SdkDiagnostics {
     private const val MAX_EVENTS = 128
     private val lock = Any()
     private val events = ArrayDeque<SdkApiTrace>()
     @Volatile private var deviceEnvironment = "设备环境尚未初始化"
+    @Volatile private var appContext: Context? = null
     private val httpLine = Regex("""^HTTP\s+(\S+)\s+(https?://\S+)\s+->\s+(\d+)\s*$""")
 
     fun initialize(context: Context) {
+        val app = context.applicationContext
+        appContext = app
         deviceEnvironment = runCatching {
-            val app = context.applicationContext
             val manager = app.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
             val memory = ActivityManager.MemoryInfo()
             manager?.getMemoryInfo(memory)
@@ -50,9 +73,41 @@ object SdkDiagnostics {
 
     fun environmentSummary(): String = deviceEnvironment
 
+    fun appVersionSummary(): String {
+        val app = appContext ?: return "应用上下文尚未初始化"
+        return runCatching {
+            val info = app.packageManager.getPackageInfo(app.packageName, 0)
+            "包名=${app.packageName}；版本=${info.versionName ?: "未知"}；versionCode=${info.longVersionCode}"
+        }.getOrElse { "应用版本读取失败：${it.javaClass.simpleName}" }
+    }
+
+    fun networkSummary(): String {
+        val app = appContext ?: return "网络状态未知：应用上下文尚未初始化"
+        return runCatching {
+            val manager = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val network = manager?.activeNetwork
+            val caps = network?.let { manager.getNetworkCapabilities(it) }
+            if (caps == null) return@runCatching "系统未报告活动网络"
+            val transports = buildList {
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("Wi-Fi")
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) add("移动网络")
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) add("以太网")
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) add("VPN")
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) add("蓝牙网络")
+            }.ifEmpty { listOf("其他/未知传输") }.joinToString("/")
+            "${transports}；具备互联网能力=${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}；系统已验证可联网=${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}；按流量计费=${!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)}"
+        }.getOrElse { "网络状态读取失败：${it.javaClass.simpleName}" }
+    }
+
     fun record(line: String) {
-        val safeLine = line.trim().take(600)
-        val match = httpLine.matchEntire(safeLine)
+        val rawLine = line.trim().take(1200)
+        val match = httpLine.matchEntire(rawLine)
+        val rawUrl = match?.groupValues?.get(2)
+        val safeLine = if (match != null && rawUrl != null) {
+            "HTTP ${match.groupValues[1]} ${rawUrl.substringBefore('?').substringBefore('#')} -> ${match.groupValues[3]}"
+        } else {
+            sanitizeDiagnosticText(rawLine).take(600)
+        }
         val isDeviceRotation = safeLine.contains("anonymous device unusable", ignoreCase = true) ||
             safeLine.contains("registering a new anonymous device", ignoreCase = true)
         val isProfileEvent = safeLine.contains("anonymous profile", ignoreCase = true) ||
@@ -60,7 +115,7 @@ object SdkDiagnostics {
         val isPlaybackEvent = safeLine.startsWith("playback ", ignoreCase = true)
         if (match == null && !isDeviceRotation && !isProfileEvent && !isPlaybackEvent) return
 
-        val url = match?.groupValues?.get(2)?.substringBefore('?')
+        val url = rawUrl?.substringBefore('?')?.substringBefore('#')
         val event = SdkApiTrace(
             time = Instant.now().toString(),
             message = safeLine,
@@ -75,6 +130,111 @@ object SdkDiagnostics {
     }
 
     fun snapshot(): List<SdkApiTrace> = synchronized(lock) { events.toList() }
+}
+
+
+/**
+ * A copy-ready, local-only report for a failed catalogue/feed request.
+ * It keeps diagnostic metadata and call stacks, not raw request bodies or credentials.
+ */
+fun Feed.toDebugReport(failure: Throwable): String = buildString {
+    val events = SdkDiagnostics.snapshot()
+    val sdkError = generateSequence(failure) { it.cause }
+        .filterIsInstance<OpenhongguoException>()
+        .firstOrNull()
+    fun sdkField(name: String): String {
+        if (sdkError == null) return "非 OpenhongguoException / SDK 未提供"
+        val getter = "get" + name.replaceFirstChar { it.uppercase() }
+        val value = runCatching {
+            sdkError.javaClass.methods.firstOrNull { it.name == getter && it.parameterCount == 0 }
+                ?.invoke(sdkError)
+        }.getOrNull() ?: return "SDK 未提供"
+        return sanitizeDiagnosticText(value.toString()).ifBlank { "空值" }
+    }
+
+    appendLine("开心果 Android 列表故障 DEBUG 诊断")
+    appendLine("报告生成时间：${Instant.now()}")
+    appendLine("发生页面：${sanitizeDiagnosticText(diagnosticName)}")
+    appendLine("请求实现/筛选上下文：${sanitizeDiagnosticText(diagnosticContext.ifBlank { "未标记" })}")
+    appendLine("应用版本：${sanitizeDiagnosticText(SdkDiagnostics.appVersionSummary())}")
+    appendLine("Android/设备环境：${sanitizeDiagnosticText(SdkDiagnostics.environmentSummary())}")
+    appendLine("当前网络状态：${SdkDiagnostics.networkSummary()}")
+    appendLine()
+
+    appendLine("===== 列表状态 =====")
+    appendLine("已启动：${started}")
+    appendLine("当前正在请求：${loading}")
+    appendLine("正在自动重试：${retrying}")
+    appendLine("是否使用过期缓存等待刷新：${stale}")
+    appendLine("当前卡片数：${cards.size}")
+    appendLine("本地缓存首次载入数：${cacheCardCount}")
+    appendLine("是否还有下一页：${more}")
+    appendLine("当前游标是否存在：${currentCursorPresent}（长度=${currentCursorLength}；不复制原值）")
+    appendLine("最近一次请求的游标是否存在：${lastRequestedCursorPresent}（长度=${lastRequestedCursorLength}；不复制原值）")
+    appendLine("请求总次数：${requestAttempts}")
+    appendLine("成功请求次数：${successfulRequests}")
+    appendLine("已安排自动重试次数：${automaticRetryCount}")
+    appendLine("最近请求时间：${lastRequestAt ?: "无"}")
+    appendLine("最近成功时间：${lastSuccessAt ?: "无"}")
+    appendLine("最近失败时间：${lastFailureAt ?: "无"}")
+    appendLine()
+
+    appendLine("===== SDK / 服务器结构化错误字段 =====")
+    appendLine("异常类型：${failure.javaClass.name}")
+    appendLine("SDK 错误码：${sdkError?.code?.name ?: "未暴露为 OpenhongguoException"}")
+    appendLine("SDK 错误信息：${sanitizeDiagnosticText(failure.message ?: failure.toString())}")
+    listOf(
+        "serverCode" to "服务器业务码",
+        "serverName" to "服务器错误名称",
+        "serverMessage" to "服务器原始错误信息（脱敏）",
+        "httpStatus" to "异常附带 HTTP 状态码",
+        "requestMethod" to "异常附带请求方法",
+        "requestPath" to "异常附带请求路径",
+        "responseBytes" to "响应传输字节数",
+        "decodedResponseBytes" to "解压后响应字节数",
+        "responseContentType" to "响应 Content-Type",
+        "responseContentEncoding" to "响应 Content-Encoding",
+        "retryable" to "SDK 是否建议重试",
+        "retryAfterMs" to "SDK 建议重试等待毫秒数",
+    ).forEach { (field, label) ->
+        appendLine("${label}：${sdkField(field)}")
+    }
+    appendLine()
+
+    appendLine("===== 异常原因链（最多 8 层） =====")
+    var current: Throwable? = failure
+    var depth = 0
+    val seen = HashSet<Int>()
+    while (current != null && depth < 8 && seen.add(System.identityHashCode(current))) {
+        appendLine("[${depth}] ${current.javaClass.name}: ${sanitizeDiagnosticText(current.message ?: "无 message")}")
+        current = current.cause
+        depth++
+    }
+    appendLine()
+
+    appendLine("===== 异常调用栈（每层最多 24 帧） =====")
+    current = failure
+    depth = 0
+    val stackSeen = HashSet<Int>()
+    while (current != null && depth < 8 && stackSeen.add(System.identityHashCode(current))) {
+        appendLine("-- cause[${depth}] ${current.javaClass.name} --")
+        current.stackTrace.take(24).forEach { frame -> appendLine("  at ${frame}") }
+        current = current.cause
+        depth++
+    }
+    appendLine()
+
+    appendLine("===== 最近 SDK 网络/设备事件（最多保留 100 条） =====")
+    appendLine("内存事件总数：${events.size}；以下是最近 ${events.takeLast(100).size} 条，时间为 UTC ISO-8601")
+    if (events.isEmpty()) appendLine("（没有捕获到匹配的 SDK 请求日志；可结合异常字段判断请求是否到达 SDK 网络层）")
+    events.takeLast(100).forEach { event ->
+        appendLine("${event.time} | ${event.message}")
+        if (event.httpStatus != null) {
+            appendLine("    method=${event.method ?: "未知"}; endpoint=${event.endpoint ?: "未知"}; HTTP=${event.httpStatus}")
+        }
+    }
+    appendLine()
+    appendLine("隐私处理：URL 查询参数整体移除；常见 Cookie/Token/签名/设备标识字段脱敏；不包含原始游标、Cookie、Token、完整请求或响应正文。")
 }
 
 data class PlaybackFailure(

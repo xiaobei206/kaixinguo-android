@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.Instant
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -32,7 +33,37 @@ class Feed(
         internal set
     var error by mutableStateOf<Throwable?>(null)
         private set
+    /** Preserved across an automatic retry so diagnostics remain available while retrying. */
+    var lastFailure by mutableStateOf<Throwable?>(null)
+        private set
     private var errorAt = 0L // System.nanoTime of the last failure
+
+    /** Route identity and request state included in the one-tap diagnostic report. */
+    var diagnosticName: String = "内容列表"
+        internal set
+    var diagnosticContext: String = ""
+        internal set
+    var cacheCardCount: Int = 0
+        internal set
+
+    var requestAttempts: Int = 0
+        private set
+    var successfulRequests: Int = 0
+        private set
+    var automaticRetryCount: Int = 0
+        private set
+    var lastRequestAt: String? = null
+        private set
+    var lastSuccessAt: String? = null
+        private set
+    var lastFailureAt: String? = null
+        private set
+    var lastRequestedCursorPresent: Boolean = false
+        private set
+    var lastRequestedCursorLength: Int = 0
+        private set
+    val currentCursorPresent: Boolean get() = cursor.isNotEmpty()
+    val currentCursorLength: Int get() = cursor.length
 
     /** Retries made by themselves since the last success. */
     private var tries = 0
@@ -87,11 +118,14 @@ class Feed(
         loading = true
         started = true
         val cursor = if (stale) "" else this.cursor
+        recordRequest(cursor)
         scope.launch {
             try {
                 val p = fetch(cursor)
                 loading = false
+                markSuccess()
                 error = null
+                lastFailure = null
                 tries = 0
                 add(p)
                 onPage?.invoke(p)
@@ -101,7 +135,9 @@ class Feed(
             } catch (e: Exception) {
                 loading = false
                 error = e
+                lastFailure = e
                 errorAt = System.nanoTime()
+                lastFailureAt = Instant.now().toString()
                 debugLog { "feed: $e" }
                 scheduleRetry()
             }
@@ -119,6 +155,7 @@ class Feed(
         }
         val wait = 2000L shl tries
         tries++
+        automaticRetryCount++
         retrying = true
         scope.launch {
             delay(wait)
@@ -144,8 +181,10 @@ class Feed(
         val fetch = fetch ?: return
         if (loading) return
         loading = true
+        recordRequest("")
         try {
             val p = fetch("")
+            markSuccess()
             val had = cards.isNotEmpty()
             val oldCursor = cursor
             val oldMore = more
@@ -156,6 +195,7 @@ class Feed(
                 seen = HashSet()
             }
             error = null
+            lastFailure = null
             tries = 0
             add(p)
             if (merging && had) {
@@ -169,10 +209,24 @@ class Feed(
             throw e
         } catch (e: Exception) {
             error = e
+            lastFailure = e
             errorAt = System.nanoTime()
+            lastFailureAt = Instant.now().toString()
         } finally {
             loading = false
         }
+    }
+
+    private fun recordRequest(requestCursor: String) {
+        requestAttempts++
+        lastRequestAt = Instant.now().toString()
+        lastRequestedCursorPresent = requestCursor.isNotEmpty()
+        lastRequestedCursorLength = requestCursor.length
+    }
+
+    private fun markSuccess() {
+        successfulRequests++
+        lastSuccessAt = Instant.now().toString()
     }
 
     companion object {

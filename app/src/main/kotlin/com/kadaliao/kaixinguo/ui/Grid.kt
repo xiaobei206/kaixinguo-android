@@ -89,6 +89,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -101,6 +104,9 @@ import com.kadaliao.kaixinguo.model.Fav
 import com.kadaliao.kaixinguo.model.Feed
 import com.kadaliao.kaixinguo.model.favLabel
 import com.kadaliao.kaixinguo.model.friendly
+import com.kadaliao.kaixinguo.model.friendlyFeedError
+import com.kadaliao.kaixinguo.model.toDebugReport
+import android.widget.Toast
 import kotlinx.coroutines.launch
 
 /** Whether the window is wide enough for a tablet's layout. */
@@ -201,7 +207,27 @@ fun FeedGrid(
                 line("state") { FeedState(feed, empty, Modifier.fillMaxWidth().heightIn(min = 420.dp)) }
             } else {
                 items(feed.cards, key = { it.id }) { CardView(it) }
-                if (feed.loading && feed.started) {
+                if (feed.error != null) {
+                    line("more-error") {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("后续内容加载失败", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                friendlyFeedError(feed.error),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CopyFeedDebugButton(feed, feed.error!!)
+                                OutlinedButton(onClick = { feed.retry() }) { Text("重试") }
+                            }
+                        }
+                    }
+                } else if (feed.loading && feed.started) {
                     line("more") {
                         Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(Modifier.size(28.dp))
@@ -262,17 +288,24 @@ fun FeedState(feed: Feed, empty: String, modifier: Modifier = Modifier) {
             feed.retrying -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator()
                 Text("网络不稳定，正在重试…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                feed.lastFailure?.let { CopyFeedDebugButton(feed, it) }
             }
-            error != null -> ErrorState(friendly(error)) { feed.retry() }
+            error != null -> ErrorState(friendlyFeedError(error), { feed.retry() }) {
+                CopyFeedDebugButton(feed, error)
+            }
             feed.loading || !feed.started -> CircularProgressIndicator()
             else -> EmptyState(Icons.Outlined.Theaters, empty)
         }
     }
 }
 
-/** ErrorState says what failed, with a way to try again. */
+/** ErrorState says what failed, without rendering long diagnostics onto the screen. */
 @Composable
-fun ErrorState(message: String, retry: () -> Unit) {
+fun ErrorState(
+    message: String,
+    retry: () -> Unit,
+    copyDebug: (@Composable () -> Unit)? = null,
+) {
     Column(
         Modifier.padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -281,7 +314,27 @@ fun ErrorState(message: String, retry: () -> Unit) {
         Icon(Icons.Outlined.WifiOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(40.dp))
         Text("加载失败", style = MaterialTheme.typography.titleMedium)
         Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        OutlinedButton(onClick = retry) { Text("重试") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            copyDebug?.invoke()
+            OutlinedButton(onClick = retry) { Text("重试") }
+        }
+    }
+}
+
+/** A one-tap action: copy the detailed report to the clipboard and show only a short confirmation. */
+@Composable
+private fun CopyFeedDebugButton(feed: Feed, failure: Throwable) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    OutlinedButton(
+        onClick = {
+            val report = feed.toDebugReport(feed.lastFailure ?: failure)
+            runCatching { clipboard.setText(AnnotatedString(report)) }
+                .onSuccess { Toast.makeText(context, "DEBUG 信息已复制", Toast.LENGTH_SHORT).show() }
+                .onFailure { Toast.makeText(context, "复制 DEBUG 信息失败", Toast.LENGTH_LONG).show() }
+        },
+    ) {
+        Text("复制DEBUG信息")
     }
 }
 

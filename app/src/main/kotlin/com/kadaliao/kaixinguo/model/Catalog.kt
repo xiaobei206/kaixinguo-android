@@ -81,6 +81,14 @@ fun friendly(error: Throwable?): String {
     return error.message ?: error.toString()
 }
 
+/** Uses list-specific wording; ANONYMOUS_LIMITED does not prove a playback request failed. */
+fun friendlyFeedError(error: Throwable?): String {
+    if (isCode(error, ErrorCode.ANONYMOUS_LIMITED)) {
+        return "列表接口返回 ANONYMOUS_LIMITED：匿名访问可能受限，或接口暂时异常"
+    }
+    return friendly(error)
+}
+
 /** AppError is a failure the app itself describes. */
 class AppError(override val message: String) : Exception(message)
 

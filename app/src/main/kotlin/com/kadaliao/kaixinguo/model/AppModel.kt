@@ -41,7 +41,10 @@ class AppModel(
     var artwork: (String) -> ByteArray? = { null }
 
     // The catalog.
-    val home = Feed(scope, discover(catalog))
+    val home = Feed(scope, discover(catalog)).apply {
+        diagnosticName = "推荐"
+        diagnosticContext = "Catalog.discover(DiscoverOptions); 推荐首页本地缓存文件 home.json"
+    }
     private val feeds = HashMap<String, Feed>()
     var rankContents by mutableStateOf(emptyList<RankContent>())
         private set
@@ -80,6 +83,7 @@ class AppModel(
         // Last launch's recommendations show at once; fresh ones join them.
         val cached = loadHomeCache()
         if (cached.isNotEmpty()) {
+            home.cacheCardCount = cached.size
             home.add(FeedPage(cached, more = true))
             home.stale = true
         }
@@ -187,6 +191,8 @@ class AppModel(
                         }
                     }
                 }.apply {
+                    diagnosticName = "排行榜"
+                    diagnosticContext = "Catalog.shortRank(ShortRankQuery); content=$content; board=$board"
                     onPage = { p -> if (p.contents.isNotEmpty()) rankContents = p.contents }
                 }
             }
@@ -208,6 +214,8 @@ class AppModel(
                         }
                     }
                 }.apply {
+                    diagnosticName = "新剧上线"
+                    diagnosticContext = "Catalog.newReleases(NewReleaseQuery); date=" + if (date.isEmpty()) "默认日期" else date
                     onPage = { p -> if (p.dates.isNotEmpty()) newDates = p.dates }
                 }
             }
@@ -225,7 +233,11 @@ class AppModel(
     fun searchFeed(query: String): Feed {
         val q = query.trim()
         return feed("search:$q") {
-            Feed(scope) { cursor -> search(catalog, q, cursor) }.apply { order = ::orderSeasons }
+            Feed(scope) { cursor -> search(catalog, q, cursor) }.apply {
+                order = ::orderSeasons
+                diagnosticName = "搜索"
+                diagnosticContext = "Catalog.search(SearchOptions); keyword=$q"
+            }
         }
     }
 
