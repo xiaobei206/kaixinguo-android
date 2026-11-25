@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.util.ArrayDeque
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -62,6 +63,9 @@ class Feed(
         private set
     var lastRequestedCursorLength: Int = 0
         private set
+    private val diagnosticLock = Any()
+    private val diagnosticEvents = ArrayDeque<String>()
+    private var lastRequestStartedNanos = 0L
     val currentCursorPresent: Boolean get() = cursor.isNotEmpty()
     val currentCursorLength: Int get() = cursor.length
 
@@ -123,7 +127,7 @@ class Feed(
             try {
                 val p = fetch(cursor)
                 loading = false
-                markSuccess()
+                markSuccess(p)
                 error = null
                 lastFailure = null
                 tries = 0
@@ -137,7 +141,7 @@ class Feed(
                 error = e
                 lastFailure = e
                 errorAt = System.nanoTime()
-                lastFailureAt = Instant.now().toString()
+                markFailure(e)
                 debugLog { "feed: $e" }
                 scheduleRetry()
             }
@@ -184,7 +188,7 @@ class Feed(
         recordRequest("")
         try {
             val p = fetch("")
-            markSuccess()
+            markSuccess(p)
             val had = cards.isNotEmpty()
             val oldCursor = cursor
             val oldMore = more
@@ -211,7 +215,7 @@ class Feed(
             error = e
             lastFailure = e
             errorAt = System.nanoTime()
-            lastFailureAt = Instant.now().toString()
+            markFailure(e)
         } finally {
             loading = false
         }
@@ -222,12 +226,38 @@ class Feed(
         lastRequestAt = Instant.now().toString()
         lastRequestedCursorPresent = requestCursor.isNotEmpty()
         lastRequestedCursorLength = requestCursor.length
+        lastRequestStartedNanos = System.nanoTime()
+        recordDiagnosticEvent(
+            "${lastRequestAt} | #${requestAttempts} START cursorPresent=${lastRequestedCursorPresent} cursorLength=${lastRequestedCursorLength}"
+        )
     }
 
-    private fun markSuccess() {
+    private fun markSuccess(page: FeedPage) {
         successfulRequests++
         lastSuccessAt = Instant.now().toString()
+        val elapsedMs = ((System.nanoTime() - lastRequestStartedNanos).coerceAtLeast(0L)) / 1_000_000L
+        recordDiagnosticEvent(
+            "${lastSuccessAt} | #${requestAttempts} SUCCESS durationMs=${elapsedMs} returnedCards=${page.cards.size} hasMore=${page.more} nextCursorPresent=${page.cursor.isNotEmpty()} nextCursorLength=${page.cursor.length}"
+        )
     }
+
+    private fun markFailure(error: Throwable) {
+        lastFailureAt = Instant.now().toString()
+        val elapsedMs = ((System.nanoTime() - lastRequestStartedNanos).coerceAtLeast(0L)) / 1_000_000L
+        recordDiagnosticEvent(
+            "${lastFailureAt} | #${requestAttempts} FAILURE durationMs=${elapsedMs} exception=${error.javaClass.name} message=${sanitizeDiagnosticText(error.message ?: error.toString())}"
+        )
+    }
+
+    private fun recordDiagnosticEvent(message: String) {
+        synchronized(diagnosticLock) {
+            diagnosticEvents.addLast(message.take(1200))
+            while (diagnosticEvents.size > 40) diagnosticEvents.removeFirst()
+        }
+    }
+
+    internal fun diagnosticHistory(): List<String> =
+        synchronized(diagnosticLock) { diagnosticEvents.toList() }
 
     companion object {
         /** A feed of these cards alone, with nothing to fetch. */

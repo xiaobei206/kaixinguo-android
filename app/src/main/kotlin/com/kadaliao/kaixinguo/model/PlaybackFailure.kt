@@ -179,6 +179,12 @@ fun Feed.toDebugReport(failure: Throwable): String = buildString {
     appendLine("最近失败时间：${lastFailureAt ?: "无"}")
     appendLine()
 
+    appendLine("===== 当前列表自身的最近请求历史（最多 40 条） =====")
+    val feedHistory = diagnosticHistory()
+    if (feedHistory.isEmpty()) appendLine("（没有列表请求历史记录）")
+    feedHistory.forEach { appendLine(it) }
+    appendLine()
+
     appendLine("===== SDK / 服务器结构化错误字段 =====")
     appendLine("异常类型：${failure.javaClass.name}")
     appendLine("SDK 错误码：${sdkError?.code?.name ?: "未暴露为 OpenhongguoException"}")
