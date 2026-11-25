@@ -86,7 +86,7 @@ object SdkDiagnostics {
         return runCatching {
             val manager = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             val network = manager?.activeNetwork
-            val caps = network?.let { manager.getNetworkCapabilities(it) }
+            val caps = if (manager != null && network != null) manager.getNetworkCapabilities(network) else null
             if (caps == null) return@runCatching "系统未报告活动网络"
             val transports = buildList {
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("Wi-Fi")
