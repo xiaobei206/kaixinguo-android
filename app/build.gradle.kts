@@ -19,8 +19,8 @@ android {
         applicationId = "com.kadaliao.kaixinguo"
         minSdk = 28
         targetSdk = 36
-        versionCode = 46
-        versionName = "0.4.41"
+        versionCode = 47
+        versionName = "0.4.42"
     }
 
     signingConfigs {

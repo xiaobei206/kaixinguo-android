@@ -81,9 +81,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.BatteryAlert
-import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FastForward
@@ -1031,8 +1028,9 @@ private fun ClockBatteryPill() {
                 batteryPercent = (level * 100f / scale).roundToInt().coerceIn(0, 100)
             }
             val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            val externallyPowered = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
             charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL
+                (status == BatteryManager.BATTERY_STATUS_FULL && externallyPowered)
         }
 
         val receiver = object : BroadcastReceiver() {
@@ -1050,13 +1048,6 @@ private fun ClockBatteryPill() {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    val lowBattery = batteryPercent != null && batteryPercent!! <= 15 && !charging
-    val batteryTint = when {
-        charging -> Color(0xFFB9F6CA)
-        lowBattery -> Color(0xFFFFCC80)
-        else -> Color.White.copy(alpha = 0.92f)
-    }
-
     Row(
         Modifier.clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.58f))
@@ -1072,16 +1063,12 @@ private fun ClockBatteryPill() {
             maxLines = 1,
         )
         batteryPercent?.let { percent ->
-            Icon(
-                imageVector = when {
-                    charging -> Icons.Filled.BatteryChargingFull
-                    lowBattery -> Icons.Filled.BatteryAlert
-                    else -> Icons.Filled.BatteryStd
-                },
-                contentDescription = if (charging) "正在充电，剩余电量 $percent%" else "剩余电量 $percent%",
-                tint = batteryTint,
-                modifier = Modifier.size(18.dp),
-            )
+            val batteryTint = when {
+                percent < 20 -> Color(0xFFF44336)
+                percent < 40 -> Color(0xFFFFC107)
+                else -> Color(0xFF4CAF50)
+            }
+            HorizontalBatteryIcon(percent = percent, tint = batteryTint, charging = charging)
             Text(
                 "$percent%",
                 color = batteryTint,
@@ -1089,6 +1076,81 @@ private fun ClockBatteryPill() {
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
             )
+        }
+    }
+}
+
+/** Horizontal battery with a true percentage fill and an optional charging bolt. */
+@Composable
+private fun HorizontalBatteryIcon(percent: Int, tint: Color, charging: Boolean) {
+    Canvas(Modifier.size(width = 26.dp, height = 14.dp)) {
+        val border = 1.25.dp.toPx()
+        val terminalWidth = 2.2.dp.toPx()
+        val bodyLeft = border / 2f
+        val bodyTop = border / 2f
+        val bodyRight = size.width - terminalWidth
+        val bodyBottom = size.height - border / 2f
+        val bodyWidth = bodyRight - bodyLeft
+        val bodyHeight = bodyBottom - bodyTop
+        val outlineColor = Color.White.copy(alpha = 0.78f)
+
+        drawRoundRect(
+            color = outlineColor,
+            topLeft = Offset(bodyLeft, bodyTop),
+            size = Size(bodyWidth, bodyHeight),
+            cornerRadius = CornerRadius(2.2.dp.toPx()),
+            style = Stroke(width = border),
+        )
+        drawRoundRect(
+            color = outlineColor,
+            topLeft = Offset(bodyRight, size.height * 0.32f),
+            size = Size(terminalWidth, size.height * 0.36f),
+            cornerRadius = CornerRadius(terminalWidth * 0.3f),
+        )
+
+        val inset = border + 1.dp.toPx()
+        val innerLeft = bodyLeft + inset
+        val innerTop = bodyTop + inset
+        val innerWidth = (bodyWidth - inset * 2f).coerceAtLeast(0f)
+        val innerHeight = (bodyHeight - inset * 2f).coerceAtLeast(0f)
+        if (innerWidth > 0f && innerHeight > 0f) {
+            val innerRadius = CornerRadius(1.dp.toPx())
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.18f),
+                topLeft = Offset(innerLeft, innerTop),
+                size = Size(innerWidth, innerHeight),
+                cornerRadius = innerRadius,
+            )
+
+            val fillWidth = innerWidth * (percent.coerceIn(0, 100) / 100f)
+            if (fillWidth > 0f) {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(innerLeft, innerTop),
+                    size = Size(fillWidth, innerHeight),
+                    cornerRadius = innerRadius,
+                )
+            }
+
+            if (charging) {
+                val centerX = innerLeft + innerWidth * 0.52f
+                val bolt = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(centerX + innerWidth * 0.14f, innerTop + innerHeight * 0.04f)
+                    lineTo(centerX - innerWidth * 0.15f, innerTop + innerHeight * 0.52f)
+                    lineTo(centerX + innerWidth * 0.01f, innerTop + innerHeight * 0.52f)
+                    lineTo(centerX - innerWidth * 0.08f, innerTop + innerHeight * 0.96f)
+                    lineTo(centerX + innerWidth * 0.20f, innerTop + innerHeight * 0.41f)
+                    lineTo(centerX + innerWidth * 0.05f, innerTop + innerHeight * 0.41f)
+                    close()
+                }
+                // A dark outline and white center keep the bolt visible on every fill color.
+                drawPath(
+                    path = bolt,
+                    color = Color(0xFF123E2E),
+                    style = Stroke(width = 0.9.dp.toPx(), join = StrokeJoin.Round),
+                )
+                drawPath(path = bolt, color = Color.White)
+            }
         }
     }
 }
