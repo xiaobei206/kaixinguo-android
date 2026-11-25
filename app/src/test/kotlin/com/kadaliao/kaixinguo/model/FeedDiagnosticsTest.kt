@@ -16,6 +16,16 @@ class FeedDiagnosticsTest {
     }
 
     @Test
+    fun redactsSensitiveValuesInsideJsonErrorMessages() {
+        val raw = """{"device_id":"device-SECRET","token":"token-SECRET","message":"request denied"}"""
+        val safe = sanitizeDiagnosticText(raw)
+
+        assertFalse(safe.contains("device-SECRET"))
+        assertFalse(safe.contains("token-SECRET"))
+        assertTrue(safe.contains(""" "message":"request denied"""".trim()))
+    }
+
+    @Test
     fun redactsAuthorizationAndDeviceCredentialFields() {
         val raw = "Authorization: Bearer bearer-SECRET; install_id=install-SECRET; signature=sign-SECRET"
         val safe = sanitizeDiagnosticText(raw)

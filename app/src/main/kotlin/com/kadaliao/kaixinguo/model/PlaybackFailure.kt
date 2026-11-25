@@ -28,6 +28,11 @@ internal fun sanitizeDiagnosticText(value: String): String {
         it.groupValues[1] + "?<query-redacted>"
     }
     safe = safe.replace(
+        Regex("""(?i)("[^"]*(?:authorization|proxy-authorization|cookie|set-cookie|access_token|refresh_token|token|device[_-]?id|anonymous[_-]?id|install[_-]?id|openudid|clientudid|cdid|klink[_-]?egdi|egdi|signature|secret|password|api[_-]?key)[^"]*"\s*:\s*)("[^"]*"|'[^']*'|[^,}\s]+)"""),
+    ) {
+        it.groupValues[1] + "\"<redacted>\""
+    }
+    safe = safe.replace(
         Regex("""(?i)\b(authorization|proxy-authorization|cookie|set-cookie|access_token|refresh_token|token|device[_-]?id|anonymous[_-]?id|install[_-]?id|openudid|clientudid|cdid|klink[_-]?egdi|egdi|signature|secret|password|api[_-]?key)\b(\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^,\s;]+)(?:\s+[^,\s;]+)?"""),
     ) {
         it.groupValues[1] + it.groupValues[2] + "<redacted>"

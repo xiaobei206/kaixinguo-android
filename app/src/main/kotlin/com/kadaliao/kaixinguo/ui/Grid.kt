@@ -214,7 +214,10 @@ fun FeedGrid(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text("后续内容加载失败", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (feed.stale) "推荐内容刷新失败，仍保留本地缓存" else "后续内容加载失败",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
                             Text(
                                 friendlyFeedError(feed.error),
                                 style = MaterialTheme.typography.bodySmall,
