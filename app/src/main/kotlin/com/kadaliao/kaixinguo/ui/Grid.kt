@@ -290,9 +290,10 @@ fun FeedState(feed: Feed, empty: String, modifier: Modifier = Modifier) {
                 Text("网络不稳定，正在重试…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 feed.lastFailure?.let { CopyFeedDebugButton(feed, it) }
             }
-            error != null -> ErrorState(friendlyFeedError(error), { feed.retry() }) {
-                CopyFeedDebugButton(feed, error)
-            }
+            error != null -> ErrorState(
+                message = friendlyFeedError(error),
+                copyDebug = { CopyFeedDebugButton(feed, error) },
+            ) { feed.retry() }
             feed.loading || !feed.started -> CircularProgressIndicator()
             else -> EmptyState(Icons.Outlined.Theaters, empty)
         }
@@ -303,8 +304,8 @@ fun FeedState(feed: Feed, empty: String, modifier: Modifier = Modifier) {
 @Composable
 fun ErrorState(
     message: String,
-    retry: () -> Unit,
     copyDebug: (@Composable () -> Unit)? = null,
+    retry: () -> Unit,
 ) {
     Column(
         Modifier.padding(32.dp),
