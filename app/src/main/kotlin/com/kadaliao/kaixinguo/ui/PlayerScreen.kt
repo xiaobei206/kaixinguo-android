@@ -1063,15 +1063,12 @@ private fun ClockBatteryPill() {
             maxLines = 1,
         )
         batteryPercent?.let { percent ->
-            val batteryTint = when {
-                percent < 20 -> Color(0xFFF44336)
-                percent < 40 -> Color(0xFFFFC107)
-                else -> Color(0xFF4CAF50)
-            }
-            HorizontalBatteryIcon(percent = percent, tint = batteryTint, charging = charging)
+            val levelTint = batteryLevelColor(percent)
+            val iconTint = batteryIconColor(percent, charging)
+            HorizontalBatteryIcon(percent = percent, tint = iconTint, charging = charging)
             Text(
                 "$percent%",
-                color = batteryTint,
+                color = levelTint,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
