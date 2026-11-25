@@ -1089,7 +1089,7 @@ private fun HorizontalBatteryIcon(percent: Int, tint: Color, charging: Boolean) 
         val bodyBottom = size.height - border / 2f
         val bodyWidth = bodyRight - bodyLeft
         val bodyHeight = bodyBottom - bodyTop
-        val outlineColor = Color.White.copy(alpha = 0.78f)
+        val outlineColor = tint
 
         drawRoundRect(
             color = outlineColor,
@@ -1099,7 +1099,7 @@ private fun HorizontalBatteryIcon(percent: Int, tint: Color, charging: Boolean) 
             style = Stroke(width = border),
         )
         drawRoundRect(
-            color = outlineColor,
+            color = tint,
             topLeft = Offset(bodyRight, size.height * 0.32f),
             size = Size(terminalWidth, size.height * 0.36f),
             cornerRadius = CornerRadius(terminalWidth * 0.3f),
