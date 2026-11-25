@@ -11,8 +11,8 @@ enum class Tab(val label: String) {
     DISCOVER("推荐"),
     RANK("排行榜"),
     NEW("新剧"),
-    MINE("我的"),
     SEARCH("搜索"),
+    MINE("我的"),
 }
 
 /** Route is a page a tab's stack can push. */
