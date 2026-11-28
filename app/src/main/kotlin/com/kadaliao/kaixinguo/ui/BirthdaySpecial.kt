@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +43,7 @@ fun BirthdaySpecialDialog(
     }.getOrNull()
     val versionName = packageInfo?.versionName ?: "未知"
     val versionCode = packageInfo?.let {
-        if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toString() else @Suppress("DEPRECATION") it.versionCode.toString()
+        if (Build.VERSION.SDK_INT >= 28) it.longVersionCode.toString() else it.versionCode.toString()
     } ?: "未知"
 
     AlertDialog(
