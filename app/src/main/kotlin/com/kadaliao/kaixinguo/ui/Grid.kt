@@ -298,7 +298,20 @@ fun FeedState(feed: Feed, empty: String, modifier: Modifier = Modifier) {
                 copyDebug = { CopyFeedDebugButton(feed, error) },
             ) { feed.retry() }
             feed.loading || !feed.started -> CircularProgressIndicator()
-            else -> EmptyState(Icons.Outlined.Theaters, empty)
+            else -> {
+                if (feed.diagnosticName == "搜索") {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    ) {
+                        EmptyState(Icons.Outlined.Theaters, empty, "也可以重新请求当前关键词，确认是否只是暂时没有返回结果。")
+                        OutlinedButton(onClick = { feed.retry() }) { Text("重新搜索") }
+                    }
+                } else {
+                    EmptyState(Icons.Outlined.Theaters, empty)
+                }
+            }
         }
     }
 }

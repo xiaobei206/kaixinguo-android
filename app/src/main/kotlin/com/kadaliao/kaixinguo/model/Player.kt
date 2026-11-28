@@ -11,11 +11,13 @@ import dev.openhongguo.Playback
 import dev.openhongguo.PlaybackResult
 import dev.openhongguo.Stream
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -77,6 +79,9 @@ interface Video {
 /** Streams makes an episode's file on the CDN playable, decrypting it with its key, and returns its URI. */
 fun interface Streams {
     fun register(sources: List<String>, key: ByteArray?): String
+
+    /** Warms the stream's size and encryption layout before the viewer switches to it. */
+    fun prepare(uri: String) {}
 }
 
 sealed interface PlayerState {
@@ -199,6 +204,9 @@ class Player internal constructor(
     private var pending = false // waits for the series to load
     private var episodeID = "" // the episode the video plays
     private val futures = HashMap<String, Future>()
+    private var prefetchJob: Job? = null
+    private data class PrefetchedStream(val result: PlaybackResult, val quality: Int?, val uri: String)
+    private val prefetchedStreams = HashMap<String, PrefetchedStream>()
     private var sleepJob: Job? = null
     private var ticker: Job? = null
     private var danmakuFor = "" // the episode whose comments are here, or on their way
@@ -231,6 +239,8 @@ class Player internal constructor(
      * `paused`, it shows the episode there without playing it.
      */
     fun play(seriesID: String, n: Int, start: Double = 0.0, paused: Boolean = false) {
+        prefetchJob?.cancel()
+        prefetchJob = null
         gen++
         if (seriesID != this.seriesID || n != number) decoderFallbackTried = false
         if (seriesID != this.seriesID) wide = false // another series may be shot the other way
@@ -342,8 +352,9 @@ class Player internal constructor(
         }
         val sources = mutableListOf(s.url.trim())
         if (s.backupUrl.isNotBlank() && s.backupUrl != s.url) sources += s.backupUrl.trim()
-        val uri = streams.register(sources, key)
-        debugLog { "play: ${ep.id} ${s.definition} ${s.codec} encrypted=${key != null}" }
+        val warmed = prefetchedStreams.remove(ep.id)?.takeIf { it.result === r && it.quality == preferredQuality }
+        val uri = warmed?.uri ?: streams.register(sources, key)
+        debugLog { "play: ${ep.id} ${s.definition} ${s.codec} encrypted=${key != null} prefetched=${warmed != null}" }
         qualities = playable(pb.streams).map(::lines).toSortedSet().sortedDescending()
         quality = lines(s)
         selectedCodec = s.codec
@@ -662,13 +673,68 @@ class Player internal constructor(
         futures.remove(episodeID)
     }
 
-    /** Resolves the next episode while this one plays. */
+    /**
+     * Waits until playback has remained active for nine seconds, then resolves
+     * the next episode and warms its stream header/CENC layout off the main
+     * thread. The registered URI is reused on a real switch when the quality
+     * and playback result still match; no media bytes are buffered in memory.
+     */
     private fun prefetch(sp: SeriesPage) {
-        val next = sp.episode(number + 1)
-        if (next != null && next.playable) {
-            resolve(next)
-        } else {
-            sp.nextSeason()?.let { app.seriesPage(it.seriesId) } // its episodes, ready to go on
+        prefetchJob?.cancel()
+        val currentNumber = number
+        val currentGen = gen
+        prefetchJob = app.scope.launch {
+            delay(9_000)
+            if (gen != currentGen || seriesID != sp.id || number != currentNumber ||
+                state != PlayerState.Playing || paused || !isPresented
+            ) return@launch
+
+            val next = sp.episode(currentNumber + 1)
+            if (next == null || !next.playable) {
+                sp.nextSeason()?.let { app.seriesPage(it.seriesId) }
+                return@launch
+            }
+
+            val f = resolve(next)
+            val result = try {
+                f.result.await().getOrThrow()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                debugLog { "prefetch: resolve failed episode=${next.id}: ${e.javaClass.simpleName}" }
+                return@launch
+            }
+            if (gen != currentGen || seriesID != sp.id || number != currentNumber ||
+                state != PlayerState.Playing || paused || !isPresented || expired(result.playback)
+            ) return@launch
+
+            try {
+                val playback = result.playback
+                val stream = pickStream(playback.streams, preferredQuality)
+                    ?: throw AppError("下一集没有可预读的视频")
+                if (stream.hls || stream.dash || playback.audioUrl.isNotEmpty()) return@launch
+                var key: ByteArray? = null
+                if (playback.protected || stream.protected) {
+                    val contentKey = result.contentKey ?: throw (result.contentKeyError ?: AppError("无法解密下一集"))
+                    key = hexBytes(contentKey.key)
+                    if (key.size != 16) throw AppError("下一集解密密钥无效")
+                }
+                val sources = mutableListOf(stream.url.trim())
+                if (stream.backupUrl.isNotBlank() && stream.backupUrl != stream.url) sources += stream.backupUrl.trim()
+                val uri = streams.register(sources, key)
+                withContext(Dispatchers.IO) { streams.prepare(uri) }
+                if (gen == currentGen && seriesID == sp.id && number == currentNumber &&
+                    state == PlayerState.Playing && !paused && isPresented && !expired(result.playback)
+                ) {
+                    prefetchedStreams[next.id] = PrefetchedStream(result, preferredQuality, uri)
+                    while (prefetchedStreams.size > 2) prefetchedStreams.remove(prefetchedStreams.keys.first())
+                    debugLog { "prefetch: warmed next episode=${next.id} quality=${stream.definition} encrypted=${key != null}" }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                debugLog { "prefetch: stream warmup failed episode=${next.id}: ${e.javaClass.simpleName}" }
+            }
         }
     }
 

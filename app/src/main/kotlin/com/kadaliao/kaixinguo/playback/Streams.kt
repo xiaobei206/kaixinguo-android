@@ -32,6 +32,11 @@ class StreamRegistry(private val http: DataSource.Factory) : Streams {
         return uri
     }
 
+    override fun prepare(uri: String) {
+        val source = get(uri) ?: throw IOException("下一集预读地址已失效")
+        source.prepare()
+    }
+
     operator fun get(uri: String): StreamSource? = synchronized(this) { streams[uri] }
 
     companion object {
