@@ -193,7 +193,7 @@ fun SearchScreen() {
                 query.isEmpty() -> HotView()
                 else -> {
                     val feed = model.searchFeed(query)
-                    FeedKey(feed) { FeedGrid(feed, "没有找到“$query”相关的短剧，换个词试试") }
+                    FeedKey(feed) { FeedGrid(feed, "没有找到“$query”相关的短剧，换个词试试", retryLabel = "重新搜索") }
                 }
             }
         }
@@ -244,7 +244,13 @@ fun MineScreen() {
     var menuExpanded by remember { mutableStateOf(false) }
     var receivingDiagnostics by remember { mutableStateOf(activity?.isDiagnosticReceiverEnabled() == true) }
     var inboxOpen by remember { mutableStateOf(false) }
+    var aboutOpen by remember { mutableStateOf(false) }
     var inbox by remember { mutableStateOf(emptyList<PhoneDiagnosticReport>()) }
+    val appPackageInfo = remember(context) {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
+    }
+    val appVersionName = appPackageInfo?.versionName ?: "未知"
+    val appVersionCode = appPackageInfo?.longVersionCode?.toString() ?: "未知"
     var lastTvHandoff by remember { mutableStateOf(TvHandoffResultRecord.load(context)) }
 
     LaunchedEffect(Unit) {
@@ -288,6 +294,18 @@ fun MineScreen() {
                             menuExpanded = false
                             inbox = activity?.diagnosticInboxReports().orEmpty()
                             inboxOpen = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text("关于开心果")
+                                Text("TZ 生日特别版", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            aboutOpen = true
                         },
                     )
                 }
@@ -380,6 +398,24 @@ fun MineScreen() {
                 }
             },
             confirmButton = { TextButton(onClick = { inboxOpen = false }) { Text("关闭") } },
+        )
+    }
+    if (aboutOpen) {
+        AlertDialog(
+            onDismissRequest = { aboutOpen = false },
+            title = { Text("开心果") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("TZ 生日特别版", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("2026年11月28日", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("愿快乐常伴，好剧常在。", style = MaterialTheme.typography.bodyLarge)
+                    Text("A Little Gift for TZ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(4.dp))
+                    Text("版本：$appVersionName（versionCode $appVersionCode）", style = MaterialTheme.typography.bodySmall)
+                    Text("开发者：by Edison", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { aboutOpen = false }) { Text("关闭") } },
         )
     }
 }

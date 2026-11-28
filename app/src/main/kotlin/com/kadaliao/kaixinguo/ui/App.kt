@@ -1,5 +1,6 @@
 package com.kadaliao.kaixinguo.ui
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -34,9 +35,11 @@ import androidx.compose.material.icons.outlined.Leaderboard
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
@@ -45,13 +48,19 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kadaliao.kaixinguo.covers.CoverStore
@@ -121,6 +130,39 @@ fun App(model: AppModel, router: Router, covers: CoverStore, video: ExoVideo, in
             }
         }
         BackHandler(enabled = !player.isPresented && router.canGoBack) { router.back() }
+        BirthdayWelcomeOnce(inPip)
+    }
+}
+
+/** Shows the TZ birthday message once on a normal launch; it remains available in Mine > About. */
+@Composable
+private fun BirthdayWelcomeOnce(inPip: Boolean) {
+    val context = LocalContext.current
+    val preferences = remember(context) { context.getSharedPreferences("kaixinguo_birthday", Context.MODE_PRIVATE) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(inPip) {
+        val key = "tz_birthday_greeting_2026_11_28_seen"
+        if (!inPip && !preferences.getBoolean(key, false)) {
+            preferences.edit().putBoolean(key, true).apply()
+            visible = true
+        }
+    }
+    if (visible) {
+        AlertDialog(
+            onDismissRequest = { visible = false },
+            title = { Text("TZ 生日特别版") },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("2026年11月28日", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    Text("愿快乐常伴，好剧常在。", textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge)
+                    Text("A Little Gift for TZ", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { visible = false }) { Text("开始使用") } },
+        )
     }
 }
 

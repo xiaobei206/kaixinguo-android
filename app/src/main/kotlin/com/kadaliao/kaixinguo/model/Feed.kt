@@ -71,6 +71,8 @@ class Feed(
 
     /** Retries made by themselves since the last success. */
     private var tries = 0
+    /** Invalidates delayed automatic retries when the viewer retries or refreshes manually. */
+    private var retryGeneration = 0L
 
     /** Whether a retry is on its way by itself. */
     var retrying by mutableStateOf(false)
@@ -108,6 +110,9 @@ class Feed(
         cards = list
     }
 
+    /** Whether this feed can be requested again (as distinct from a cache-only feed). */
+    val canFetch: Boolean get() = fetch != null
+
     /** Whether the grid should ask for the next page. */
     val wantsMore: Boolean get() = fetch != null && (stale || more || !started)
 
@@ -127,6 +132,8 @@ class Feed(
             try {
                 val p = fetch(cursor)
                 loading = false
+                retryGeneration++
+                retrying = false
                 markSuccess(p)
                 error = null
                 lastFailure = null
@@ -161,18 +168,33 @@ class Feed(
         tries++
         automaticRetryCount++
         retrying = true
+        val generation = ++retryGeneration
         scope.launch {
             delay(wait)
+            if (generation != retryGeneration) return@launch
             retrying = false
             error = null
             loadMore()
         }
     }
 
-    /** Fetches again after an error, now. */
+    /**
+     * Retries now. With no cards this starts from the first page again, including
+     * when the previous request legitimately returned an empty final page.
+     */
     fun retry() {
+        if (loading || fetch == null) return
+        retryGeneration++
+        retrying = false
         tries = 0
         error = null
+        if (cards.isEmpty()) {
+            started = false
+            cursor = ""
+            more = true
+            stale = false
+            seen.clear()
+        }
         loadMore()
     }
 
@@ -184,6 +206,8 @@ class Feed(
     suspend fun refresh(merging: Boolean) {
         val fetch = fetch ?: return
         if (loading) return
+        retryGeneration++
+        retrying = false
         loading = true
         recordRequest("")
         try {

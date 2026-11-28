@@ -186,6 +186,7 @@ fun FeedGrid(
     feed: Feed,
     empty: String,
     refresh: (suspend () -> Unit)? = null,
+    retryLabel: String = "重新加载",
     header: (@Composable () -> Unit)? = null,
 ) {
     LaunchedEffect(feed) {
@@ -204,7 +205,7 @@ fun FeedGrid(
         CardGrid(state) {
             if (header != null) line("header") { Box(Modifier.bleed(16.dp)) { header() } }
             if (feed.cards.isEmpty()) {
-                line("state") { FeedState(feed, empty, Modifier.fillMaxWidth().heightIn(min = 420.dp)) }
+                line("state") { FeedState(feed, empty, Modifier.fillMaxWidth().heightIn(min = 420.dp), retryLabel) }
             } else {
                 items(feed.cards, key = { it.id }) { CardView(it) }
                 if (feed.error != null) {
@@ -284,7 +285,7 @@ fun CardGrid(state: LazyGridState = rememberLazyGridState(), content: LazyGridSc
 
 /** FeedState is what a feed with no series yet shows. */
 @Composable
-fun FeedState(feed: Feed, empty: String, modifier: Modifier = Modifier) {
+fun FeedState(feed: Feed, empty: String, modifier: Modifier = Modifier, retryLabel: String = "重新加载") {
     Box(modifier, contentAlignment = Alignment.Center) {
         val error = feed.error
         when {
@@ -298,7 +299,13 @@ fun FeedState(feed: Feed, empty: String, modifier: Modifier = Modifier) {
                 copyDebug = { CopyFeedDebugButton(feed, error) },
             ) { feed.retry() }
             feed.loading || !feed.started -> CircularProgressIndicator()
-            else -> EmptyState(Icons.Outlined.Theaters, empty)
+            else -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                EmptyState(Icons.Outlined.Theaters, empty)
+                if (feed.canFetch) OutlinedButton(onClick = { feed.retry() }) { Text(retryLabel) }
+            }
         }
     }
 }
