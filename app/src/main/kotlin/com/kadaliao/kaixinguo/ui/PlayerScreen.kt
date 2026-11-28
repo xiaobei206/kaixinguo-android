@@ -567,7 +567,7 @@ private fun Gestures(hud: PlayerHud, modifier: Modifier) {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     Box(
-        modifier.pointerInput(Unit) {
+        modifier.pointerInput(hud.touchLocked) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 hud.controlsPinned = true
