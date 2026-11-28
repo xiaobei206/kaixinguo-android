@@ -424,6 +424,9 @@ private class PlayerHud {
     /** Temporarily prevents auto-hide while a gesture, menu, or seek drag is active. */
     var controlsPinned by mutableStateOf(false)
 
+    /** Disables video-surface gestures together with the screen-orientation lock. */
+    var touchLocked by mutableStateOf(false)
+
     /** Whether the YouTube-style playback diagnostics overlay is visible. */
     var diagnosticsVisible by mutableStateOf(false)
 
@@ -582,11 +585,20 @@ private fun Gestures(hud: PlayerHud, modifier: Modifier) {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     Box(
-        modifier.pointerInput(Unit) {
+        modifier.pointerInput(hud.touchLocked) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 hud.controlsPinned = true
                 try {
+                if (hud.touchLocked) {
+                    if (!hud.controlsVisible) {
+                        hud.controlsVisible = true
+                    } else {
+                        hud.say("触摸已锁定，请点击顶部按钮解除双锁")
+                    }
+                    untilUp(down)
+                    return@awaitEachGesture
+                }
                 val slop = viewConfiguration.touchSlop
                 val touch = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                     var t: Touch? = null
@@ -997,11 +1009,12 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
             if (landscape && rotation != null) {
                 IconButton(onClick = {
                     val locked = rotation.toggleLock()
-                    hud.say(if (locked) "已锁定屏幕旋转" else "已解除屏幕旋转锁")
+                    hud.touchLocked = locked
+                    hud.say(if (locked) "已同时锁定触摸与屏幕旋转" else "已同时解除触摸与屏幕旋转锁")
                 }) {
                     Icon(
-                        if (rotation.locked) Icons.Filled.Lock else Icons.Filled.ScreenRotation,
-                        contentDescription = if (rotation.locked) "解除屏幕旋转锁" else "锁定屏幕旋转",
+                        if (rotation.locked && hud.touchLocked) Icons.Filled.Lock else Icons.Filled.ScreenRotation,
+                        contentDescription = if (rotation.locked && hud.touchLocked) "解除触摸与屏幕旋转锁" else "同时锁定触摸与屏幕旋转",
                         tint = if (rotation.locked) Color(0xFFE2C27A) else Color.White,
                     )
                 }
