@@ -42,6 +42,7 @@ import com.kadaliao.kaixinguo.cast.PhoneDiagnosticReceiver
 import com.kadaliao.kaixinguo.cast.PhoneDiagnosticReport
 import com.kadaliao.kaixinguo.playback.PlaybackService
 import com.kadaliao.kaixinguo.ui.App
+import com.kadaliao.kaixinguo.ui.BirthdaySpecialDialog
 import com.kadaliao.kaixinguo.ui.StartFailed
 import com.kadaliao.kaixinguo.ui.Tab
 import com.kadaliao.kaixinguo.ui.KaixinguoTheme
@@ -71,6 +72,7 @@ class MainActivity : ComponentActivity() {
 
     private val app get() = application as KaixinguoApplication
     private var inPip by mutableStateOf(false)
+    private var showBirthdayWelcome by mutableStateOf(false)
     private var updateState by mutableStateOf<UpdateUiState?>(null)
     private var updateCheckInProgress = false
     private var updateJob: Job? = null
@@ -93,6 +95,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val birthdayPrefs = getSharedPreferences("birthday_special", Context.MODE_PRIVATE)
+        showBirthdayWelcome = !birthdayPrefs.getBoolean("welcome_shown", false)
+        if (showBirthdayWelcome) birthdayPrefs.edit().putBoolean("welcome_shown", true).apply()
         val model = app.model
         setContent {
             KaixinguoTheme {
@@ -108,6 +113,12 @@ class MainActivity : ComponentActivity() {
                             onContinueInstall = ::continueInstallConfirmation,
                             onOpenSystemInstaller = ::openSystemInstallerFallback,
                             onOpenBrowserDownload = ::openBrowserDownload,
+                        )
+                    }
+                    if (showBirthdayWelcome) {
+                        BirthdaySpecialDialog(
+                            welcome = true,
+                            onDismiss = { showBirthdayWelcome = false },
                         )
                     }
                 }
