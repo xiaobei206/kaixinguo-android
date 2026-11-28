@@ -77,6 +77,15 @@ interface Video {
 /** Streams makes an episode's file on the CDN playable, decrypting it with its key, and returns its URI. */
 fun interface Streams {
     fun register(sources: List<String>, key: ByteArray?): String
+
+    /** Register and optionally read the opening bytes ahead, already decrypted. */
+    fun preload(sources: List<String>, key: ByteArray?, bytes: Long): String = register(sources, key)
+
+    /** Whether the registry still owns this playback URI. */
+    fun has(uri: String): Boolean = true
+
+    /** Release a preloaded URI and its memory, when supported. */
+    fun drop(uri: String) {}
 }
 
 sealed interface PlayerState {
@@ -114,6 +123,12 @@ class Player internal constructor(
 
         /** The speed a press and hold on the video plays at. */
         const val DOUBLE_RATE = 2f
+
+        /** Three-second ticks spent actively playing before reading ahead. */
+        const val PRELOAD_AFTER = 3
+
+        /** Estimate the next episode's opening media bytes from this many seconds. */
+        const val PRELOAD_SECONDS = 20
     }
 
     var seriesID by mutableStateOf<String?>(null)
@@ -203,6 +218,11 @@ class Player internal constructor(
     private var ticker: Job? = null
     private var danmakuFor = "" // the episode whose comments are here, or on their way
     private var danmakuJob: Job? = null
+    private var played = 0 // three-second ticks spent actively playing this episode
+
+    /** The next episode's first bytes, already decrypted, to be reused on cut. */
+    private class Preloaded(val episodeID: String, val url: String, val uri: String)
+    private var preloaded: Preloaded? = null
 
     /** Future is an episode's playback model being resolved, shared by the start of the episode and the prefetch before it. */
     private class Future {
@@ -279,6 +299,8 @@ class Player internal constructor(
             return
         }
         state = PlayerState.Resolving
+        played = 0
+        discardPreloadedUnless(ep.id)
         sp.reveal(number)
         record(sp, number, start, 0.0, finished = false)
         loadDanmaku(sp.id, ep.id)
@@ -327,10 +349,40 @@ class Player internal constructor(
     }
 
     /**
-     * The item that plays the stream of the model nearest the definition
-     * the viewer picked, decrypting it with its key.
+     * The item that plays the stream nearest the definition the viewer picked.
+     * A matching preloaded URI is reused; stale read-ahead is released.
      */
     private fun makeItem(r: PlaybackResult, sp: SeriesPage, ep: Episode): VideoItem {
+        val pb = r.playback
+        val (s, sources, key) = stream(r)
+        val candidate = preloaded
+        val reusable = candidate != null &&
+            candidate.episodeID == ep.id &&
+            candidate.url == s.url &&
+            streams.has(candidate.uri)
+        val uri = if (reusable) {
+            preloaded = null
+            candidate!!.uri
+        } else {
+            candidate?.let { streams.drop(it.uri) }
+            preloaded = null
+            streams.register(sources, key)
+        }
+        debugLog { "play: ${ep.id} ${s.definition} ${s.codec} encrypted=${key != null} preloaded=$reusable" }
+        qualities = playable(pb.streams).map(::lines).toSortedSet().sortedDescending()
+        quality = lines(s)
+        selectedCodec = s.codec
+        sourceWidth = s.width
+        sourceHeight = s.height
+        sourceBitrate = s.bitrate.toLong()
+        if (s.width > 0 && s.height > 0) wide = s.width > s.height
+        val series = sp.series
+        val cover = series?.coverUrl.orEmpty()
+        return VideoItem(uri, ep.id, series?.title.orEmpty(), "第 ${ep.number} 集", app.artwork(cover), cover)
+    }
+
+    /** Select a stream without mutating the current episode's quality controls. */
+    private fun stream(r: PlaybackResult): Triple<Stream, List<String>, ByteArray?> {
         val pb = r.playback
         val s = pickStream(pb.streams, preferredQuality) ?: throw AppError("这一集没有可以播放的视频")
         if (s.hls || s.dash || pb.audioUrl.isNotEmpty()) throw AppError("暂不支持这种视频格式")
@@ -342,18 +394,22 @@ class Player internal constructor(
         }
         val sources = mutableListOf(s.url.trim())
         if (s.backupUrl.isNotBlank() && s.backupUrl != s.url) sources += s.backupUrl.trim()
-        val uri = streams.register(sources, key)
-        debugLog { "play: ${ep.id} ${s.definition} ${s.codec} encrypted=${key != null}" }
-        qualities = playable(pb.streams).map(::lines).toSortedSet().sortedDescending()
-        quality = lines(s)
-        selectedCodec = s.codec
-        sourceWidth = s.width
-        sourceHeight = s.height
-        sourceBitrate = s.bitrate.toLong()
-        if (s.width > 0 && s.height > 0) wide = s.width > s.height
-        val series = sp.series
-        val cover = series?.coverUrl.orEmpty()
-        return VideoItem(uri, ep.id, series?.title.orEmpty(), "第 ${ep.number} 集", app.artwork(cover), cover)
+        return Triple(s, sources, key)
+    }
+
+    private fun discardPreloadedUnless(episodeId: String) {
+        val item = preloaded ?: return
+        if (item.episodeID != episodeId) {
+            streams.drop(item.uri)
+            preloaded = null
+        } else if (!streams.has(item.uri)) {
+            preloaded = null
+        }
+    }
+
+    private fun clearPreloaded() {
+        preloaded?.let { streams.drop(it.uri) }
+        preloaded = null
     }
 
     /** Lets the episode go, as another starts; `keep` leaves it on screen, paused, until the next replaces it. */
@@ -454,6 +510,7 @@ class Player internal constructor(
 
         val token = ++gen
         pending = false
+        clearPreloaded()
         state = PlayerState.ResettingDevice
         stopItem()
         app.scope.launch {
@@ -479,6 +536,7 @@ class Player internal constructor(
     fun leave() {
         isPresented = false
         if (inPictureInPicture) return
+        clearPreloaded()
         video.pause()
         if (state == PlayerState.Resolving) {
             gen++
@@ -625,7 +683,7 @@ class Player internal constructor(
         }
     }
 
-    /** Records where the viewer is every 3 seconds while the video plays. */
+    /** Records progress every three seconds and begins one bounded read-ahead after about nine seconds. */
     private fun tick(on: Boolean) {
         if (!on) {
             ticker?.cancel()
@@ -637,8 +695,43 @@ class Player internal constructor(
             while (isActive) {
                 delay(3000)
                 progress()
+                if (state == PlayerState.Playing && video.status == TimeControl.PLAYING && ++played >= PRELOAD_AFTER) {
+                    preloadNext()
+                }
             }
         }
+    }
+
+    /**
+     * Reads the next episode's opening bytes only after the current episode has
+     * played steadily for about nine seconds. Metadata is shared with resolve();
+     * if it is not ready yet, the next tick tries again without blocking playback.
+     */
+    private fun preloadNext() {
+        val current = page ?: return
+        val (seriesId, episodeNumber) = app.following(current, number) ?: return
+        val nextPage = app.seriesEntry(seriesId)
+        if (nextPage.series == null || nextPage.isBook) return
+        val next = nextPage.episode(episodeNumber)?.takeIf { it.playable } ?: return
+        val resolved = resolve(next).outcome?.getOrNull() ?: return
+        val selected = runCatching { stream(resolved) }.getOrNull() ?: return
+        val (source, sources, key) = selected
+
+        val existing = preloaded
+        if (existing != null &&
+            existing.episodeID == next.id &&
+            existing.url == source.url &&
+            streams.has(existing.uri)
+        ) return
+
+        clearPreloaded()
+        val size = preloadBytes(source)
+        val uri = runCatching { streams.preload(sources, key, size) }.getOrElse {
+            debugLog { "play: preloading ${next.id} failed: ${it.javaClass.simpleName}" }
+            return
+        }
+        preloaded = Preloaded(next.id, source.url, uri)
+        debugLog { "play: reading ${next.id} ahead, budget=${size} bytes encrypted=${key != null}" }
     }
 
     private fun itemFailed(message: String, decoderFailure: Boolean = false) {
@@ -659,6 +752,7 @@ class Player internal constructor(
             }
         }
         state = PlayerState.Failed(message)
+        if (preloaded?.episodeID == episodeID) clearPreloaded()
         futures.remove(episodeID)
     }
 
@@ -687,6 +781,7 @@ class Player internal constructor(
         episodeID = "" // the pause that follows the end is no progress
         record(sp, number, 0.0, 0.0, finished = true)
         if (sleep == Sleep.EndOfEpisode) {
+            clearPreloaded()
             chooseSleep(Sleep.Off)
             return
         }
@@ -719,6 +814,12 @@ fun pickStream(streams: List<Stream>, near: Int? = null): Stream? {
 
 /** The streams with somewhere to fetch them from. */
 fun playable(streams: List<Stream>): List<Stream> = streams.filter { it.url.isNotBlank() }
+
+/** Estimate the first 20 seconds of media, bounded to 2–8 MiB; unknown rates use 4 MiB. */
+fun preloadBytes(stream: Stream): Long {
+    if (stream.bitrate <= 0) return 4L shl 20
+    return (stream.bitrate / 8 * Player.PRELOAD_SECONDS).coerceIn(2L shl 20, 8L shl 20)
+}
 
 /**
  * A stream's definition, as lines: 720 for "720p", a picture 720 wide and
