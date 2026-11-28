@@ -14,6 +14,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.UUID
+import java.util.concurrent.Executors
 
 /**
  * StreamRegistry keeps the episodes' files the player may read, by the URI
@@ -23,11 +24,33 @@ import java.util.UUID
 class StreamRegistry(private val http: DataSource.Factory) : Streams {
     private val streams = LinkedHashMap<String, StreamSource>()
 
-    override fun register(sources: List<String>, key: ByteArray?): String {
-        val uri = "$SCHEME://episode/${UUID.randomUUID()}.mp4"
+    /** One daemon keeps prefetches off ExoPlayer's loading thread. */
+    private val reader = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "kaixinguo-stream-prefetch").apply { isDaemon = true }
+    }
+
+    override fun register(sources: List<String>, key: ByteArray?): String =
+        add(StreamSource(sources, key, http))
+
+    override fun preload(sources: List<String>, key: ByteArray?, bytes: Long): String {
+        val source = StreamSource(sources, key, http)
+        val uri = add(source)
+        reader.execute { source.preload(bytes.coerceIn(64L shl 10, 8L shl 20)) }
+        return uri
+    }
+
+    override fun has(uri: String): Boolean = get(uri) != null
+
+    override fun drop(uri: String) {
+        synchronized(this) { streams.remove(uri) }?.dropped = true
+    }
+
+    private fun add(source: StreamSource): String {
+        val uri = "$SCHEME://episode/\${UUID.randomUUID()}.mp4"
         synchronized(this) {
-            streams[uri] = StreamSource(sources, key, http)
-            while (streams.size > 3) streams.remove(streams.keys.first())
+            streams[uri] = source
+            // The active stream, a just-finished stream and one read-ahead are enough.
+            while (streams.size > 3) streams.remove(streams.keys.first())?.dropped = true
         }
         return uri
     }
@@ -52,14 +75,26 @@ class StreamSource(val sources: List<String>, private val key: ByteArray?, priva
     @Volatile
     var good = 0
 
+    /** Beginning of the file, already decrypted; replaced whole as more bytes arrive. */
+    @Volatile
+    var prefix = ByteArray(0)
+        private set
+
+    /** True after the registry releases this URI; an in-flight prefetch discards its result. */
+    @Volatile
+    var dropped = false
+
     private var file: File? = null
     private var failure: IOException? = null
 
-    /** The file's size and layout, learning them the first time; it blocks, on the player's loading thread. */
+    /**
+     * Learn file size and CENC layout on a loading thread. Failed prefetches
+     * must not poison later playback, so only ordinary opens cache a failure.
+     */
     @Synchronized
-    fun prepare(): File {
+    fun prepare(soft: Boolean = false): File {
         file?.let { return it }
-        failure?.let { throw it }
+        if (!soft) failure?.let { throw it }
         var last = IOException("没有视频地址")
         for ((i, source) in sources.withIndex()) {
             try {
@@ -70,6 +105,9 @@ class StreamSource(val sources: List<String>, private val key: ByteArray?, priva
                     }
                 }
                 good = i
+                val clearHead = head.copyOf()
+                layout?.decrypt(clearHead, 0)
+                if (prefix.isEmpty()) prefix = clearHead
                 return File(total, layout).also { file = it }
             } catch (e: InterruptedIOException) {
                 throw e // the player gave up on this read: another may try again
@@ -81,8 +119,32 @@ class StreamSource(val sources: List<String>, private val key: ByteArray?, priva
                 last = IOException(e)
             }
         }
-        failure = last
+        if (!soft) failure = last
         throw last
+    }
+
+    /**
+     * Read the first bytes ahead and keep them decrypted. Errors are non-fatal:
+     * normal playback can still use this URI and try the primary/backup source.
+     */
+    fun preload(bytes: Long) {
+        if (dropped) return
+        try {
+            val f = prepare(soft = true)
+            val from = prefix.size.toLong()
+            val to = minOf(f.size, bytes)
+            if (from >= to || dropped) return
+            val got = read(sources[good], from, to - from).first
+            f.layout?.decrypt(got, from)
+            synchronized(this) {
+                if (!dropped && prefix.size.toLong() == from) prefix += got
+            }
+            debugLog { "stream: read ahead ${prefix.size} bytes" }
+        } catch (e: IOException) {
+            debugLog { "stream: reading ahead: $e" }
+        } catch (e: RuntimeException) {
+            debugLog { "stream: reading ahead: $e" }
+        }
     }
 
     /** Reads `count` bytes of `source` at `offset`, and the file's size. */
@@ -149,7 +211,7 @@ class CencDataSource(private val registry: StreamRegistry, private val http: Dat
         end = if (dataSpec.length == C.LENGTH_UNSET.toLong()) f.size else minOf(f.size, position + dataSpec.length)
         source = s.good
         tries = 0
-        if (position < end) connect()
+        if (position < end && position >= s.prefix.size) connect()
         opened = true
         transferStarted(dataSpec)
         return end - position
@@ -159,6 +221,18 @@ class CencDataSource(private val registry: StreamRegistry, private val http: Dat
         if (length == 0) return 0
         if (position >= end) return C.RESULT_END_OF_INPUT
         val want = minOf(length.toLong(), end - position).toInt()
+        if (upstream == null) {
+            // The prefix is already decrypted; copy it until playback catches up.
+            val cached = stream!!.prefix
+            if (position < cached.size) {
+                val n = minOf(want.toLong(), cached.size - position).toInt()
+                System.arraycopy(cached, position.toInt(), buffer, offset, n)
+                position += n
+                bytesTransferred(n)
+                return n
+            }
+            connect()
+        }
         while (true) {
             val n = try {
                 upstream!!.read(buffer, offset, want)

@@ -89,6 +89,7 @@ import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -226,7 +227,12 @@ fun PlayerScreen(inPip: Boolean) {
     val hud = remember { PlayerHud() }
     val rotation = rememberRotation()
     // The little window shows the video as it is, and the dimming doesn't come back with the screen.
-    LaunchedEffect(inPip) { if (inPip) hud.brightness = 1f }
+    LaunchedEffect(inPip) {
+        if (inPip) {
+            hud.brightness = 1f
+            hud.touchLocked = false
+        }
+    }
     // A new episode starts with the controls available; playback will hide them after a short idle period.
     LaunchedEffect(player.number) {
         hud.controlsVisible = true
@@ -402,6 +408,9 @@ private class PlayerHud {
     /** Whether the top controls and bottom seek bar are on screen. */
     var controlsVisible by mutableStateOf(true)
 
+    /** Horizontal playback touch lock; hardware keys and the unlock button remain available. */
+    var touchLocked by mutableStateOf(false)
+
     /** Temporarily prevents auto-hide while a gesture, menu, or seek drag is active. */
     var controlsPinned by mutableStateOf(false)
 
@@ -563,9 +572,15 @@ private fun Gestures(hud: PlayerHud, modifier: Modifier) {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     Box(
-        modifier.pointerInput(Unit) {
+        modifier.pointerInput(hud.touchLocked) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
+                if (hud.touchLocked) {
+                    hud.controlsVisible = true
+                    hud.say("触摸已锁定，点击锁图标解锁")
+                    untilUp(down)
+                    return@awaitEachGesture
+                }
                 hud.controlsPinned = true
                 try {
                 val slop = viewConfiguration.touchSlop
@@ -976,6 +991,19 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                 }
             }
             SpeedMenu(hud)
+            if (landscape) {
+                IconButton(onClick = {
+                    hud.touchLocked = !hud.touchLocked
+                    hud.controlsVisible = true
+                    hud.say(if (hud.touchLocked) "触摸已锁定" else "触摸已解锁")
+                }) {
+                    Icon(
+                        if (hud.touchLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                        contentDescription = if (hud.touchLocked) "解锁触摸" else "锁定触摸",
+                        tint = Color.White,
+                    )
+                }
+            }
             if (rotation != null) RotateButton(rotation, landscape)
             IconButton(onClick = search) { Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Color.White) }
             if (toggleTabletEpisodes != null) {
