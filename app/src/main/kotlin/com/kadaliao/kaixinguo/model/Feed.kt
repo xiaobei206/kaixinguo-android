@@ -171,8 +171,18 @@ class Feed(
 
     /** Fetches again after an error, now. */
     fun retry() {
+        if (loading) return
         tries = 0
         error = null
+        retrying = false
+        // A successful empty first page is still retryable (notably for search).
+        // Reset only an exhausted feed with no cards; populated feeds retain pagination.
+        if (cards.isEmpty() && started && !more) {
+            cursor = ""
+            more = true
+            started = false
+            seen.clear()
+        }
         loadMore()
     }
 
