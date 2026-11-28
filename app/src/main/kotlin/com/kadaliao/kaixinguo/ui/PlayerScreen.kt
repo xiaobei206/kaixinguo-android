@@ -342,7 +342,7 @@ private fun PlayerWindow(hideBars: Boolean, keepOn: Boolean) {
 private fun rememberRotation(): Rotation? {
     val activity = LocalActivity.current ?: return null
     val rotation = remember(activity) { Rotation(activity) }
-    val holding = rotation.held != null && !rotation.locked
+    val holding = shouldListenForManualOrientation(rotation.held, rotation.locked)
     DisposableEffect(rotation, holding) {
         val listener = object : OrientationEventListener(activity) {
             override fun onOrientationChanged(degrees: Int) = rotation.phoneTurned(degrees)
@@ -1009,7 +1009,7 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                     Text(it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall.merge(shadowed), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (landscape && rotation != null) {
+            if ((landscape || rotation?.locked == true) && rotation != null) {
                 IconButton(onClick = {
                     val locked = rotation.toggleLock()
                     hud.touchLocked = locked
