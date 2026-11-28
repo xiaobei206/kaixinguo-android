@@ -89,6 +89,7 @@ import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -341,7 +342,7 @@ private fun PlayerWindow(hideBars: Boolean, keepOn: Boolean) {
 private fun rememberRotation(): Rotation? {
     val activity = LocalActivity.current ?: return null
     val rotation = remember(activity) { Rotation(activity) }
-    val holding = rotation.held != null
+    val holding = shouldListenForManualOrientation(rotation.held, rotation.locked)
     DisposableEffect(rotation, holding) {
         val listener = object : OrientationEventListener(activity) {
             override fun onOrientationChanged(degrees: Int) = rotation.phoneTurned(degrees)
@@ -354,9 +355,9 @@ private fun rememberRotation(): Rotation? {
 }
 
 /**
- * Rotation can temporarily turn the screen to watch upright or sideways,
- * or lock the current orientation until the viewer unlocks it. The player
- * restores the system rotation policy as it closes.
+ * Rotation keeps the manual orientation button independent from the dual
+ * touch/sensor lock. A manual turn made while locked uses a fixed direction;
+ * unlocking restores sensor-based rotation, and closing releases everything.
  */
 private class Rotation(private val activity: Activity) {
     /** The way a press turned the screen, while it holds: true on its side, false upright. */
@@ -367,21 +368,22 @@ private class Rotation(private val activity: Activity) {
     var locked by mutableStateOf(false)
         private set
 
+    /** Manual orientation remains available while the dual lock is enabled. */
     fun turn(landscape: Boolean) {
-        if (locked) return
         held = landscape
-        activity.requestedOrientation =
-            if (landscape) ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        activity.requestedOrientation = requestedOrientationForManualTurn(landscape, locked)
     }
 
-    /** Locks the orientation as it is now, without disabling video touch gestures. */
+    /** Locks touch and sensor-driven rotation, without taking away manual rotation. */
     fun toggleLock(): Boolean {
         if (locked) {
             locked = false
             held = null
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         } else {
-            held = null
+            // Keep `held`: the manual-rotation button must remain visible if it
+            // was visible before locking. SCREEN_ORIENTATION_LOCKED freezes
+            // the current display rotation until a manual turn is requested.
             locked = true
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
         }
@@ -401,6 +403,7 @@ private class Rotation(private val activity: Activity) {
      * the screen wouldn't follow the phone, so the press holds.
      */
     fun phoneTurned(degrees: Int) {
+        if (locked) return
         val held = held ?: return
         if (degrees == OrientationEventListener.ORIENTATION_UNKNOWN) return // lying flat
         val side = degrees in 60..120 || degrees in 240..300
@@ -1006,15 +1009,15 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                     Text(it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall.merge(shadowed), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (landscape && rotation != null) {
+            if ((landscape || rotation?.locked == true) && rotation != null) {
                 IconButton(onClick = {
                     val locked = rotation.toggleLock()
                     hud.touchLocked = locked
-                    hud.say(if (locked) "已同时锁定触摸与屏幕旋转" else "已同时解除触摸与屏幕旋转锁")
+                    hud.say(if (locked) "已同时锁定触摸与自动旋转" else "已同时解除触摸与自动旋转锁")
                 }) {
                     Icon(
-                        if (rotation.locked && hud.touchLocked) Icons.Filled.Lock else Icons.Filled.ScreenRotation,
-                        contentDescription = if (rotation.locked && hud.touchLocked) "解除触摸与屏幕旋转锁" else "同时锁定触摸与屏幕旋转",
+                        if (rotation.locked && hud.touchLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                        contentDescription = if (rotation.locked && hud.touchLocked) "解除触摸与自动旋转锁" else "锁定触摸与自动旋转",
                         tint = if (rotation.locked) Color(0xFFE2C27A) else Color.White,
                     )
                 }
@@ -1205,7 +1208,7 @@ private fun HorizontalBatteryIcon(percent: Int, tint: Color, charging: Boolean) 
 @Composable
 private fun RotateButton(rotation: Rotation, landscape: Boolean) {
     val player = LocalModel.current.player
-    if (rotation.locked || LocalConfiguration.current.smallestScreenWidthDp >= 600 || !(player.wide || rotation.held == true)) return
+    if (LocalConfiguration.current.smallestScreenWidthDp >= 600 || !(player.wide || rotation.held != null || rotation.locked)) return
     IconButton(onClick = { rotation.turn(landscape = !landscape) }) {
         Icon(Icons.Filled.ScreenRotation, contentDescription = if (landscape) "竖屏观看" else "横屏观看", tint = Color.White)
     }
