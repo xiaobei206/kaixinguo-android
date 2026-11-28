@@ -1013,7 +1013,7 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                 IconButton(onClick = {
                     val locked = rotation.toggleLock()
                     hud.touchLocked = locked
-                    hud.say(if (locked) "已同时锁定触摸与屏幕旋转" else "已同时解除触摸与屏幕旋转锁")
+                    hud.say(if (locked) "已同时锁定触摸与自动旋转" else "已同时解除触摸与自动旋转锁")
                 }) {
                     Icon(
                         if (rotation.locked && hud.touchLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
@@ -1208,7 +1208,7 @@ private fun HorizontalBatteryIcon(percent: Int, tint: Color, charging: Boolean) 
 @Composable
 private fun RotateButton(rotation: Rotation, landscape: Boolean) {
     val player = LocalModel.current.player
-    if (LocalConfiguration.current.smallestScreenWidthDp >= 600 || !(player.wide || rotation.held == true)) return
+    if (LocalConfiguration.current.smallestScreenWidthDp >= 600 || !(player.wide || rotation.held != null || rotation.locked)) return
     IconButton(onClick = { rotation.turn(landscape = !landscape) }) {
         Icon(Icons.Filled.ScreenRotation, contentDescription = if (landscape) "竖屏观看" else "横屏观看", tint = Color.White)
     }
