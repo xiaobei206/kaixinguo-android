@@ -205,7 +205,7 @@ class Player internal constructor(
     private var episodeID = "" // the episode the video plays
     private val futures = HashMap<String, Future>()
     private var prefetchJob: Job? = null
-    private data class PrefetchedStream(val result: PlaybackResult, val quality: Int, val uri: String)
+    private data class PrefetchedStream(val result: PlaybackResult, val quality: Int?, val uri: String)
     private val prefetchedStreams = HashMap<String, PrefetchedStream>()
     private var sleepJob: Job? = null
     private var ticker: Job? = null
