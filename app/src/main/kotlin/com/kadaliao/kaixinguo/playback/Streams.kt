@@ -46,7 +46,7 @@ class StreamRegistry(private val http: DataSource.Factory) : Streams {
     }
 
     private fun add(source: StreamSource): String {
-        val uri = "$SCHEME://episode/\${UUID.randomUUID()}.mp4"
+        val uri = "$SCHEME://episode/${UUID.randomUUID()}.mp4"
         synchronized(this) {
             streams[uri] = source
             // The active stream, a just-finished stream and one read-ahead are enough.
