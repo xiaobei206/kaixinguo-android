@@ -244,6 +244,7 @@ fun MineScreen() {
     var menuExpanded by remember { mutableStateOf(false) }
     var receivingDiagnostics by remember { mutableStateOf(activity?.isDiagnosticReceiverEnabled() == true) }
     var inboxOpen by remember { mutableStateOf(false) }
+    var birthdayInfoOpen by remember { mutableStateOf(false) }
     var inbox by remember { mutableStateOf(emptyList<PhoneDiagnosticReport>()) }
     var lastTvHandoff by remember { mutableStateOf(TvHandoffResultRecord.load(context)) }
 
@@ -288,6 +289,13 @@ fun MineScreen() {
                             menuExpanded = false
                             inbox = activity?.diagnosticInboxReports().orEmpty()
                             inboxOpen = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("关于开心果 · 丅芈孒生日特别版") },
+                        onClick = {
+                            menuExpanded = false
+                            birthdayInfoOpen = true
                         },
                     )
                 }
@@ -354,6 +362,10 @@ fun MineScreen() {
                 items(saved, key = { it.id }) { CardView(it) }
             }
         }
+    }
+
+    if (birthdayInfoOpen) {
+        BirthdaySpecialDialog(onDismiss = { birthdayInfoOpen = false })
     }
 
     if (inboxOpen) {
