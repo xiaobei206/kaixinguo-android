@@ -108,6 +108,13 @@ class CatalogTest {
     }
 
     @Test
+    fun preloadByteBudgetIsBounded() {
+        assertEquals(4L shl 20, preloadBytes(Stream(bitrate = 0)))
+        assertEquals(2L shl 20, preloadBytes(Stream(bitrate = 1)))
+        assertEquals(8L shl 20, preloadBytes(Stream(bitrate = 10_000_000)))
+    }
+
+    @Test
     fun hexKeys() {
         assertEquals(16, hexBytes("00112233445566778899aabbccddeeff").size)
         assertEquals(0xff.toByte(), hexBytes("00112233445566778899aabbccddeeff")[15])
@@ -177,6 +184,55 @@ class CatalogTest {
         assertEquals(listOf("a"), f.cards.map { it.id })
         assertNull(f.error)
         assertFalse(f.retrying)
+    }
+
+    /** A legit empty final search page still offers retry, starting a fresh request from the first page. */
+    @Test
+    fun feedCanRetryAfterEmptyResults() = runTest {
+        val cursors = ArrayList<String>()
+        val feed = Feed(backgroundScope) { cursor ->
+            cursors += cursor
+            if (cursors.size == 1) {
+                FeedPage(emptyList(), cursor = "stale", more = false)
+            } else {
+                FeedPage(listOf(Card("found", "找到的剧")), more = false)
+            }
+        }
+
+        feed.loadMore()
+        runCurrent()
+        assertTrue(feed.cards.isEmpty())
+        assertFalse(feed.more)
+
+        feed.retry()
+        runCurrent()
+        assertEquals(listOf("", ""), cursors)
+        assertEquals(listOf("found"), feed.cards.map { it.id })
+        assertFalse(feed.loading)
+    }
+
+    /** A manual retry cancels an older delayed automatic retry rather than firing a duplicate request later. */
+    @Test
+    fun manualRetryCancelsDelayedAutomaticRetry() = runTest {
+        var attempts = 0
+        val feed = Feed(backgroundScope) {
+            attempts++
+            if (attempts == 1) throw IOException("timed out")
+            FeedPage(listOf(Card("a", "A")))
+        }
+
+        feed.loadMore()
+        runCurrent()
+        assertTrue(feed.retrying)
+        feed.retry()
+        runCurrent()
+        assertEquals(2, attempts)
+        assertEquals(listOf("a"), feed.cards.map { it.id })
+
+        advanceTimeBy(2100)
+        runCurrent()
+        assertEquals(2, attempts)
+        assertFalse(feed.retrying)
     }
 
     /** Search reads the 剧集 tab, falls back to 综合, and fills in the covers the results come without. */
