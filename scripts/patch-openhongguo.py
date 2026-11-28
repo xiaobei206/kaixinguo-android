@@ -921,11 +921,19 @@ replace_function(
 }""",
 )
 
-replace_once(
-    "internal/protocol/parse_test.go",
-    """"series_title":"Fixture Lantern Court"}""",
-    """"series_title":"Fixture Lantern Court","series_cover":"https://media.invalid/search-cover.jpg"}""",
-)
+# Some newer openhongguo revisions already carry a series_cover in the
+# fixture; only adapt the legacy fixture shape when that exact target remains.
+_fixture = ROOT / "internal/protocol/parse_test.go"
+_fixture_source = _fixture.read_text(encoding="utf-8")
+_fixture_old = '"series_title":"Fixture Lantern Court"}'
+_fixture_new = '"series_title":"Fixture Lantern Court","series_cover":"https://media.invalid/search-cover.jpg"}'
+_fixture_count = _fixture_source.count(_fixture_old)
+if _fixture_count == 1:
+    _fixture.write_text(_fixture_source.replace(_fixture_old, _fixture_new, 1), encoding="utf-8")
+elif _fixture_count == 0 and '"series_cover":"https://media.invalid/search-cover.jpg"' in _fixture_source:
+    print("Fixture already covers series_cover; skipping legacy fixture adaptation.")
+else:
+    raise SystemExit(f"internal/protocol/parse_test.go: cannot safely adapt series_cover fixture (legacy target count={_fixture_count})")
 
 for path in (
     "sdk/errors.go",
