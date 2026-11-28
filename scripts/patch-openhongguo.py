@@ -20,6 +20,18 @@ def replace_once(path: str, old: str, new: str) -> None:
         raise SystemExit(f"{path}: expected exactly one patch target, found {count}")
     file.write_text(source.replace(old, new, 1), encoding="utf-8")
 
+def replace_if_present_once(path: str, old: str, new: str) -> None:
+    """Apply a fixture-only compatibility tweak when older SDK text still exists."""
+    file = ROOT / path
+    source = file.read_text(encoding="utf-8")
+    count = source.count(old)
+    if count == 0:
+        return  # Newer upstream already carries the fixture detail.
+    if count != 1:
+        raise SystemExit(f"{path}: expected zero or one optional patch target, found {count}")
+    file.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+
 replace_once(
     "sdk/errors.go",
     """type APIError struct {
@@ -921,7 +933,7 @@ replace_function(
 }""",
 )
 
-replace_once(
+replace_if_present_once(
     "internal/protocol/parse_test.go",
     """"series_title":"Fixture Lantern Court"}""",
     """"series_title":"Fixture Lantern Court","series_cover":"https://media.invalid/search-cover.jpg"}""",
