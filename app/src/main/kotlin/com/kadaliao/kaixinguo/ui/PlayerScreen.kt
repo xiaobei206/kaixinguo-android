@@ -233,6 +233,9 @@ fun PlayerScreen(inPip: Boolean) {
             hud.touchLocked = false
         }
     }
+    LaunchedEffect(landscape) {
+        if (!landscape) hud.touchLocked = false
+    }
     // A new episode starts with the controls available; playback will hide them after a short idle period.
     LaunchedEffect(player.number) {
         hud.controlsVisible = true
@@ -515,7 +518,7 @@ private fun VideoArea(hud: PlayerHud, edge: Boolean, chrome: Boolean, rotation: 
             Spacer(Modifier.weight(1f))
             // With nothing under the video, the bar keeps clear of the system's.
             AnimatedVisibility(
-                visible = hud.controlsVisible,
+                visible = hud.controlsVisible && !hud.touchLocked,
                 enter = fadeIn(tween(180)),
                 exit = fadeOut(tween(220)),
             ) {
@@ -990,7 +993,7 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                     Text(it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall.merge(shadowed), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            SpeedMenu(hud)
+            if (!hud.touchLocked) SpeedMenu(hud)
             if (landscape) {
                 IconButton(onClick = {
                     hud.touchLocked = !hud.touchLocked
@@ -1004,19 +1007,21 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                     )
                 }
             }
-            if (rotation != null) RotateButton(rotation, landscape)
-            IconButton(onClick = search) { Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Color.White) }
-            if (toggleTabletEpisodes != null) {
-                IconButton(onClick = toggleTabletEpisodes) {
-                    Icon(
-                        Icons.Filled.GridView,
-                        contentDescription = if (tabletEpisodesVisible) "隐藏选集" else "显示选集",
-                        tint = Color.White,
-                    )
+            if (!hud.touchLocked && rotation != null) RotateButton(rotation, landscape)
+            if (!hud.touchLocked) {
+                IconButton(onClick = search) { Icon(Icons.Filled.Search, contentDescription = "搜索", tint = Color.White) }
+                if (toggleTabletEpisodes != null) {
+                    IconButton(onClick = toggleTabletEpisodes) {
+                        Icon(
+                            Icons.Filled.GridView,
+                            contentDescription = if (tabletEpisodesVisible) "隐藏选集" else "显示选集",
+                            tint = Color.White,
+                        )
+                    }
                 }
+                TvHandoffButton(model = LocalModel.current)
+                MoreMenu(hud)
             }
-            TvHandoffButton(model = LocalModel.current)
-            MoreMenu(hud)
         }
         if (showFullscreenClock) {
             Box(

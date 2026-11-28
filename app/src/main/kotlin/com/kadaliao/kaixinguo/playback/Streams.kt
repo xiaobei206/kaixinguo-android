@@ -211,7 +211,7 @@ class CencDataSource(private val registry: StreamRegistry, private val http: Dat
         end = if (dataSpec.length == C.LENGTH_UNSET.toLong()) f.size else minOf(f.size, position + dataSpec.length)
         source = s.good
         tries = 0
-        if (position < end && position >= s.prefix.size) connect()
+        if (position < end && position >= s.prefix.size.toLong()) connect()
         opened = true
         transferStarted(dataSpec)
         return end - position
@@ -224,8 +224,8 @@ class CencDataSource(private val registry: StreamRegistry, private val http: Dat
         if (upstream == null) {
             // The prefix is already decrypted; copy it until playback catches up.
             val cached = stream!!.prefix
-            if (position < cached.size) {
-                val n = minOf(want.toLong(), cached.size - position).toInt()
+            if (position < cached.size.toLong()) {
+                val n = minOf(want.toLong(), cached.size.toLong() - position).toInt()
                 System.arraycopy(cached, position.toInt(), buffer, offset, n)
                 position += n
                 bytesTransferred(n)
