@@ -77,7 +77,7 @@ interface Video {
 }
 
 /** Streams makes an episode's file on the CDN playable, decrypting it with its key, and returns its URI. */
-interface Streams {
+fun interface Streams {
     fun register(sources: List<String>, key: ByteArray?): String
 
     /** Warms the stream's size and encryption layout before the viewer switches to it. */
