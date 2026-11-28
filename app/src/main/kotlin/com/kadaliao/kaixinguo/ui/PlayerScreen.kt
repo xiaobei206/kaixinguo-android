@@ -89,6 +89,7 @@ import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -405,6 +406,9 @@ private class PlayerHud {
     /** Temporarily prevents auto-hide while a gesture, menu, or seek drag is active. */
     var controlsPinned by mutableStateOf(false)
 
+    /** Blocks video-surface gestures while keeping the visible player controls usable. */
+    var touchLocked by mutableStateOf(false)
+
     /** Whether the YouTube-style playback diagnostics overlay is visible. */
     var diagnosticsVisible by mutableStateOf(false)
 
@@ -568,6 +572,15 @@ private fun Gestures(hud: PlayerHud, modifier: Modifier) {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 hud.controlsPinned = true
                 try {
+                if (hud.touchLocked) {
+                    if (!hud.controlsVisible) {
+                        hud.controlsVisible = true
+                    } else {
+                        hud.say("触摸已锁定，请点击顶部开锁按钮")
+                    }
+                    untilUp(down)
+                    return@awaitEachGesture
+                }
                 val slop = viewConfiguration.touchSlop
                 val touch = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                     var t: Touch? = null
@@ -973,6 +986,18 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                 Text("第 ${player.number} 集", color = Color.White, style = MaterialTheme.typography.titleMedium.merge(shadowed), fontWeight = FontWeight.SemiBold)
                 player.page?.series?.title?.let {
                     Text(it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall.merge(shadowed), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (landscape) {
+                IconButton(onClick = {
+                    hud.touchLocked = !hud.touchLocked
+                    hud.say(if (hud.touchLocked) "已锁定触摸，点击开锁按钮解锁" else "已解除触摸锁")
+                }) {
+                    Icon(
+                        if (hud.touchLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                        contentDescription = if (hud.touchLocked) "解除触摸锁" else "锁定触摸",
+                        tint = if (hud.touchLocked) Color(0xFFE2C27A) else Color.White,
+                    )
                 }
             }
             SpeedMenu(hud)
