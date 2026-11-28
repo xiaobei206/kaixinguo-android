@@ -89,7 +89,6 @@ import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -355,26 +354,45 @@ private fun rememberRotation(): Rotation? {
 }
 
 /**
- * Rotation turns the screen at a press: on its side, and upright again.
- * The way pressed holds until the phone is turned that way too, when the
- * screen goes back to following the phone, if auto-rotate is on; and as
- * the player closes.
+ * Rotation can temporarily turn the screen to watch upright or sideways,
+ * or lock the current orientation until the viewer unlocks it. The player
+ * restores the system rotation policy as it closes.
  */
 private class Rotation(private val activity: Activity) {
     /** The way a press turned the screen, while it holds: true on its side, false upright. */
     var held by mutableStateOf<Boolean?>(null)
         private set
 
+    /** Whether the current screen orientation is locked until an explicit unlock. */
+    var locked by mutableStateOf(false)
+        private set
+
     fun turn(landscape: Boolean) {
+        if (locked) return
         held = landscape
         activity.requestedOrientation =
             if (landscape) ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
 
+    /** Locks the orientation as it is now, without disabling video touch gestures. */
+    fun toggleLock(): Boolean {
+        if (locked) {
+            locked = false
+            held = null
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        } else {
+            held = null
+            locked = true
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        }
+        return locked
+    }
+
     /** Lets the screen follow the phone again, and the auto-rotate setting. */
     fun release() {
-        if (held == null) return
+        if (held == null && !locked) return
         held = null
+        locked = false
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
@@ -405,9 +423,6 @@ private class PlayerHud {
 
     /** Temporarily prevents auto-hide while a gesture, menu, or seek drag is active. */
     var controlsPinned by mutableStateOf(false)
-
-    /** Blocks video-surface gestures while keeping the visible player controls usable. */
-    var touchLocked by mutableStateOf(false)
 
     /** Whether the YouTube-style playback diagnostics overlay is visible. */
     var diagnosticsVisible by mutableStateOf(false)
@@ -567,20 +582,11 @@ private fun Gestures(hud: PlayerHud, modifier: Modifier) {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     Box(
-        modifier.pointerInput(hud.touchLocked) {
+        modifier.pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 hud.controlsPinned = true
                 try {
-                if (hud.touchLocked) {
-                    if (!hud.controlsVisible) {
-                        hud.controlsVisible = true
-                    } else {
-                        hud.say("触摸已锁定，请点击顶部开锁按钮")
-                    }
-                    untilUp(down)
-                    return@awaitEachGesture
-                }
                 val slop = viewConfiguration.touchSlop
                 val touch = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                     var t: Touch? = null
@@ -988,15 +994,15 @@ private fun TopBar(hud: PlayerHud, rotation: Rotation?, landscape: Boolean, sear
                     Text(it, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall.merge(shadowed), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (landscape) {
+            if (landscape && rotation != null) {
                 IconButton(onClick = {
-                    hud.touchLocked = !hud.touchLocked
-                    hud.say(if (hud.touchLocked) "已锁定触摸，点击开锁按钮解锁" else "已解除触摸锁")
+                    val locked = rotation.toggleLock()
+                    hud.say(if (locked) "已锁定屏幕旋转" else "已解除屏幕旋转锁")
                 }) {
                     Icon(
-                        if (hud.touchLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
-                        contentDescription = if (hud.touchLocked) "解除触摸锁" else "锁定触摸",
-                        tint = if (hud.touchLocked) Color(0xFFE2C27A) else Color.White,
+                        if (rotation.locked) Icons.Filled.Lock else Icons.Filled.ScreenRotation,
+                        contentDescription = if (rotation.locked) "解除屏幕旋转锁" else "锁定屏幕旋转",
+                        tint = if (rotation.locked) Color(0xFFE2C27A) else Color.White,
                     )
                 }
             }
@@ -1186,7 +1192,7 @@ private fun HorizontalBatteryIcon(percent: Int, tint: Color, charging: Boolean) 
 @Composable
 private fun RotateButton(rotation: Rotation, landscape: Boolean) {
     val player = LocalModel.current.player
-    if (LocalConfiguration.current.smallestScreenWidthDp >= 600 || !(player.wide || rotation.held == true)) return
+    if (rotation.locked || LocalConfiguration.current.smallestScreenWidthDp >= 600 || !(player.wide || rotation.held == true)) return
     IconButton(onClick = { rotation.turn(landscape = !landscape) }) {
         Icon(Icons.Filled.ScreenRotation, contentDescription = if (landscape) "竖屏观看" else "横屏观看", tint = Color.White)
     }
